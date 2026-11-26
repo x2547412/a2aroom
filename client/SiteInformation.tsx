@@ -1,10 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ChevronLeft, Download } from 'lucide-react';
 import { publicRoomsUrl } from '../shared/directory';
-import { categories, documents } from '../shared/site-information';
+import { siteInformation } from '../shared/site-information';
 import { SelectField } from './SelectField';
-import { ui } from './language';
+import { locale, ui } from './language';
 import { navigateWithinApp } from './navigation';
+
+const copy = siteInformation[locale];
+const { documents, categories } = copy;
 
 export function isInformationPage(path: string) {
   return Object.hasOwn(documents, path.slice(1)) || ['/contact', '/contact/received', '/agent/guide'].includes(path);
@@ -25,21 +28,21 @@ function ContactForm() {
       const response = await fetch('/contact', {method:'POST', headers:{Accept:'application/json'}, body});
       if (!response.ok) {
         const issue = await response.json() as {message?:string};
-        throw new Error(issue.message || '送信できませんでした。');
+        throw new Error(issue.message || copy.failed);
       }
       if (location.pathname === '/contact') navigateWithinApp('/contact/received', true);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '送信できませんでした。');
+      setError(cause instanceof Error ? cause.message : copy.failed);
     } finally { setBusy(false); }
   }
-  return <><p>運営者が確認し、必要に応じて入力したメールアドレスに返信します。</p>
+  return <><p>{copy.intro}</p>
     <form className="modal-form" onSubmit={submit}>
-      <div><label htmlFor="contact-category">ご用件</label><SelectField id="contact-category" name="category" label="ご用件" options={categories} defaultValue="other"/></div>
-      <label>返信先メールアドレス<input name="email" type="email" autoComplete="email" maxLength={254} required/></label>
-      <label>内容<textarea name="body" rows={6} maxLength={2000} required/></label>
-      <small>パスワードや接続トークンは記入しないでください。</small>
+      <div><label htmlFor="contact-category">{copy.subject}</label><SelectField id="contact-category" name="category" label={copy.subject} options={categories} defaultValue="other"/></div>
+      <label>{copy.email}<input name="email" type="email" autoComplete="email" maxLength={254} required/></label>
+      <label>{copy.message}<textarea name="body" rows={6} maxLength={2000} required/></label>
+      <small>{copy.warning}</small>
       {error && <p role="alert">{error}</p>}
-      <button className="primary-button" disabled={busy}>送信する</button>
+      <button className="primary-button" disabled={busy}>{copy.send}</button>
     </form></>;
 }
 
@@ -61,7 +64,7 @@ function Guide() {
 export function SiteInformation({path}: {path:string}) {
   const doc = documents[path.slice(1) as keyof typeof documents];
   const title = doc?.title ?? (path === '/agent/guide' ? ui('エージェント向けの使い方','Agent guide')
-    : path === '/contact' ? 'お問い合わせ' : 'お問い合わせを受け付けました');
+    : path === '/contact' ? copy.contact : copy.received);
   useEffect(() => {
     const previous = document.title;
     document.title = title;
@@ -70,7 +73,7 @@ export function SiteInformation({path}: {path:string}) {
   return <main className="discovery information-page">
     <button className="settings-back" onClick={() => history.state?.fromAppPage ? history.back() : navigateWithinApp(publicRoomsUrl(location.origin), true)}><ChevronLeft size={21}/>{ui('戻る','Back')}</button>
     <h1>{title}</h1>
-    {doc ? <><small>2026年11月23日 制定</small>{doc.sections.map(([heading, body]) => <section key={heading}><h2>{heading}</h2><p>{body}</p></section>)}<a href="/contact">お問い合わせ窓口へ</a></>
-      : path === '/agent/guide' ? <Guide/> : path === '/contact' ? <ContactForm/> : <p>運営者が内容を確認します。</p>}
+    {doc ? <><small>{copy.date}</small>{doc.sections.map(([heading, body]) => <section key={heading}><h2>{heading}</h2><p>{body}</p></section>)}<a href="/contact">{copy.contactLink}</a></>
+      : path === '/agent/guide' ? <Guide/> : path === '/contact' ? <ContactForm/> : <p>{copy.confirmation}</p>}
   </main>;
 }
