@@ -1190,7 +1190,7 @@ test('development public modes isolate anonymous visitors and preserve private r
     await ai.connect(transport);
     try {
       assert.ok(transport.sessionId);
-      assert.deepEqual((await ai.listTools()).tools.map(t=>t.name).sort(),['create_room_invite', 'delete_message', 'delete_room', 'edit_message', 'get_member_profile', 'get_my_webhook', 'get_reply_status', 'get_room', 'get_room_members', 'join_room', 'leave_room', 'post_media_message', 'post_message', 'read_attachment', 'read_messages', 'read_room_timeline', 'remove_my_webhook', 'remove_room_member', 'report_message', 'revoke_room_invites', 'search_messages', 'set_my_webhook', 'set_profile', 'set_reaction', 'set_reply_status', 'update_room', 'upload_attachment_chunk']);
+      assert.deepEqual((await ai.listTools()).tools.map(t=>t.name).sort(),['create_room_invite', 'delete_message', 'delete_room', 'edit_message', 'get_member_profile', 'get_my_webhook', 'get_reply_status', 'get_room', 'get_room_members', 'get_verification_note', 'join_room', 'leave_room', 'post_media_message', 'post_message', 'read_attachment', 'read_messages', 'read_room_timeline', 'remove_my_webhook', 'remove_room_member', 'report_message', 'revoke_room_invites', 'search_messages', 'set_my_webhook', 'set_profile', 'set_reaction', 'set_reply_status', 'update_room', 'update_verification_note', 'upload_attachment_chunk']);
       assert.equal((await ai.callTool({name:'read_messages',arguments:{}})).isError,true);
       const joined=await ai.callTool({name:'join_room',arguments:{name:'Visitor AI',image}});
       assert.ok(!joined.isError,JSON.stringify(joined.content));
@@ -1231,6 +1231,65 @@ test('development public modes isolate anonymous visitors and preserve private r
         assert.equal((await fetch(otherEndpoint,{method:'DELETE',headers:{'Mcp-Session-Id':otherTransport.sessionId!}})).status,404);
       } finally {await departing.close();}
     } finally {await ai.close();}
+  });
+  await t.test('named guest identity survives reconnects and only participates in guest rooms', async t => {
+    const lobby = new URL('/api/public/mcp', origin);
+    const connect = async (endpoint: URL, key?:string) => {
+      const ai = new Client({name:'handle-fixture',version:'1'});
+      const transport = new StreamableHTTPClientTransport(endpoint, {requestInit:{headers:{
+        'CF-Connecting-IP':'192.0.2.84', ...(key ? {Authorization:'Bearer '+key} : {}),
+      }}});
+      await ai.connect(transport);
+      t.after(() => ai.close());
+      return ai;
+    };
+    const call = (ai:Client,name:string,args:Record<string,unknown>={}) => ai.callTool({name,arguments:args});
+    const value = (r:Awaited<ReturnType<typeof call>>) => {
+      assert.ok(!r.isError);
+      return JSON.parse((r.content as {text:string}[])[0].text);
+    };
+    const [anon,second] = await Promise.all([connect(lobby),connect(lobby)]);
+    const claims = await Promise.all([call(anon,'claim_handle',{handle:'Test-Scout'}),call(second,'claim_handle',{handle:'test-scout'})]);
+    const winner = claims[0].isError ? 1 : 0;
+    assert.equal(claims[1-winner].isError,true);
+    const identity = value(claims[winner]);
+    assert.equal(identity.handle,'test-scout');
+    assert.match(identity.key,/^agk_[A-Za-z0-9_-]{43}$/);
+    assert.ok((await call([anon,second][winner],'claim_handle',{handle:'another-scout'})).isError);
+    const rpcBody=JSON.stringify({id:1,jsonrpc:'2.0',method:'tools/list'});
+    assert.equal((await fetch(origin+'/mcp',{method:'POST',headers:{...callHeaders,Authorization:'Bearer '+identity.key},body:rpcBody})).status,401);
+    assert.equal((await fetch(lobby,{method:'POST',headers:{...callHeaders,Authorization:'Bearer invalid'},body:rpcBody})).status,401);
+    const named=await connect(lobby,identity.key);
+    const names=(await named.listTools()).tools.map(t=>t.name);
+    for(const protectedName of ['claim_handle','create_room','update_room','delete_room','set_my_webhook','set_profile','remove_room_member'])
+      assert.ok(!names.includes(protectedName), protectedName);
+    const first=(await owner('/rooms','POST',{name:'Handle room A',access_mode:'anonymous',directory_listed:true})).data.id;
+    const hidden=(await owner('/rooms','POST',{name:'Handle room B',access_mode:'anonymous',directory_listed:false})).data.id;
+    for(const room_id of [registered.data.id,invite.data.id,hidden]) assert.ok((await call(named,'join_room',{room_id})).isError);
+    assert.ok((await call(named,'post_message',{room_id:first,body:'Before joining'})).isError);
+    const joined=value(await call(named,'join_room',{room_id:first}));
+    assert.equal(joined.agent_id,identity.agent_id);
+    const m=value(await call(named,'post_message',{room_id:first,body:'Hello from a fixed identity'}));
+    const returned=await connect(lobby,identity.key);
+    const historic=value(await call(returned,'read_messages',{room_id:first})).messages;
+    assert.ok(historic.some((p:{id:string; author_agent_id:string;agent_name:string})=>p.id===m.id && p.author_agent_id===identity.agent_id && p.agent_name==='test-scout'));
+    assert.equal(value(await call(returned,'get_member_profile',{room_id:first,kind:'agent',subject_id:identity.agent_id})).guest_handle,'test-scout');
+    assert.ok(!(await call(returned,'edit_message',{room_id:first,message_id:m.id,body:'Correction'})).isError);
+    const noteTarget = {room_id:first,message_id:m.id};
+    const steps = 'Observe the named guest test fixture';
+    assert.equal(value(await call(returned,'update_verification_note',{...noteTarget,change:{kind:'evidence',source_url:'',steps}})).saved,true);
+    assert.equal(value(await call(returned,'get_verification_note',noteTarget)).steps,steps);
+    assert.ok(value(await call(returned,'search_verification_archive',{query:steps})).notes.some((n:{message_id:string})=>n.message_id===m.id));
+    const direct=await connect(new URL('/api/public/rooms/'+hidden+'/mcp',origin),identity.key);
+    assert.equal(value(await call(direct,'join_room')).agent_id,identity.agent_id);
+    assert.ok((await call(direct,'get_room',{room_id:first})).isError);
+    assert.ok(!(await call(direct,'post_message',{body:'Same agent in another room'})).isError);
+    assert.ok(!(await call(direct,'leave_room')).isError);
+    assert.ok((await call(direct,'read_messages')).isError);
+    assert.ok(!(await call(returned,'read_messages',{room_id:first})).isError);
+    await owner('/rooms/'+first+'/access','PATCH',{access_mode:'registered'});
+    assert.ok((await call(returned,'read_messages',{room_id:first})).isError);
+    assert.ok((await call(returned,'join_room',{room_id:first})).isError);
   });
 
 });

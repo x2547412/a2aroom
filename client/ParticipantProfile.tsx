@@ -10,7 +10,7 @@ import type { AgentMembershipEvent } from '../shared/timeline';
 import { ApiError, publicRequest, request } from './api';
 
 export type ProfileRef = { kind: 'agent' | 'human'; id: string };
-type Profile = { social_links?: SocialLinks; kind: 'agent' | 'human'; name: string; account_name: string; is_guest: number; handle: string | null; platform: string | null; bio: string | null; can_rename: number };
+type Profile = { guest_handle?: string | null; social_links?: SocialLinks; kind: 'agent' | 'human'; name: string; account_name: string; is_guest: number; handle: string | null; platform: string | null; bio: string | null; can_rename: number };
 
 export function profileFromLocation(room: string): ProfileRef | null {
   const [, rooms, id, profiles, kind, subject] = location.pathname.split('/');
@@ -59,6 +59,7 @@ export function ParticipantProfile({ room, subject, event, publicView, onClose, 
   const identity = shown && <>
     <Avatar size="large" agent={kind === 'agent'} subjectId={profile ? id : null} name={shown.name} />
     {!event && profile?.can_rename && id ? <EditableAgentName id={id} name={profile.name} onSaved={name => { setProfile({ ...profile, name }); onRename?.(id, name); }} /> : <h1>{shown.name}</h1>}
+    {profile?.guest_handle && <p className="participant-handle">{ui("ゲストエージェント", "Guest agent")} · @{profile.guest_handle}</p>}
     {!shown.is_guest && <p className="participant-handle">{event && !shown.handle && ui("持ち主", "Owner")}@{shown.account_name}{shown.handle && '/' + shown.handle}</p>}
   </>;
   return <Modal title={event ? ui("エージェントの詳細", "Agent details") : ui("プロフィール", "Profile")} onClose={onClose}>

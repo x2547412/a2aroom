@@ -208,7 +208,58 @@ test('worker delivers a signed wake immediately, retries, disables and notifies 
     } finally { socket.close(); }
   });
 
-  await t.test('guest MCP delivers signed wakes only during its live room session', async () => {
+  await t.test('registered MCP unread waits wake on messages, time out and recheck access', async () => {
+    const agent = await api('/agents', 'POST', {name:'Polling', handle:'polling', platform:'test'});
+    const connection = await api('/agents/' + agent.id + '/connections', 'POST', {label:'poll fixture'});
+    const {id:room} = await api('/rooms', 'POST', {name:'Poll test'});
+    await api('/rooms/' + room + '/agents', 'POST', {agent_id:agent.id});
+    async function poll(args: {wait?:number; room_id?:string}) {
+      const response = await mf.dispatchFetch(origin + '/mcp', {
+        method:'POST', headers:{Authorization:'Bearer ' + connection.token, 'Content-Type':'application/json', Accept:'application/json, text/event-stream'},
+        body:JSON.stringify({jsonrpc:'2.0', id:1, method:'tools/call', params:{name:'get_unread', arguments:args}}),
+      });
+      const rpc = await response.json() as {result:{isError?:boolean; content:{text:string}[]}};
+      return {status:response.status, retry:response.headers.get('Retry-After'), data:JSON.parse(rpc.result.content[0].text)};
+    }
+    // Two simultaneous calls give a deterministic acknowledgement that one is waiting.
+    const waits = [poll({wait:8, room_id:room}), poll({wait:8, room_id:room})];
+    const busy = await Promise.race(waits);
+    assert.equal(busy.status, 429);
+    assert.equal(busy.data.error, 'POLL_IN_PROGRESS');
+    assert.ok(Number(busy.retry) > 0);
+    const posted = await api('/rooms/' + room + '/messages', 'POST', {body:'A message for the waiting agent'});
+    const ready = (await Promise.all(waits)).find(result => result.status === 200);
+    assert.deepEqual(ready?.data.messages.map((m:{id:string}) => m.id), [posted.id]);
+
+    await api('/rooms/r/agents', 'POST', {agent_id:agent.id});
+    const timeoutStart = Date.now();
+    const timeout = poll({wait:1, room_id:room});
+    const other = await api('/rooms/r/messages', 'POST', {body:'Unread in another room'});
+    assert.deepEqual((await timeout).data.messages, []);
+    assert.ok(Date.now() - timeoutStart >= 900);
+    assert.ok((await poll({wait:5})).data.messages.some((m:{id:string}) => m.id === other.id));
+
+    const left = [poll({wait:1, room_id:room}), poll({wait:1, room_id:room})];
+    assert.equal((await Promise.race(left)).status, 429);
+    await api('/rooms/' + room + '/agents/' + agent.id, 'DELETE');
+    assert.ok((await Promise.all(left)).some(result => result.data.error === 'NOT_A_MEMBER'));
+
+    const issuedAt = Date.now();
+    await db.prepare(`WITH RECURSIVE reads(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM reads WHERE n<600)
+      INSERT INTO agent_requests(agent_id,created_at) SELECT ?,? FROM reads`).bind(agent.id, issuedAt).run();
+    const limited = await poll({wait:1});
+    assert.equal(limited.status, 429);
+    assert.equal(limited.data.error, 'READ_RATE_LIMIT');
+    assert.ok(Number(limited.retry) > 0);
+    await db.prepare('DELETE FROM agent_requests WHERE agent_id=? AND created_at=?').bind(agent.id, issuedAt).run();
+
+    const revoked = [poll({wait:1}), poll({wait:1})];
+    assert.equal((await Promise.race(revoked)).status, 429);
+    await api('/connections/' + connection.id, 'DELETE');
+    assert.ok((await Promise.all(revoked)).some(result => result.data.error === 'TOKEN_REVOKED'));
+  });
+
+  await t.test('guest MCP delivers signed wakes only during its live room session', async t => {
     await mf.setOptions(options(true));
     for (const host of [origin, directoryOrigin]) {
       const catalog = await mf.dispatchFetch(host + '/.well-known/ai-catalog.json');
@@ -239,6 +290,13 @@ test('worker delivers a signed wake immediately, retries, disables and notifies 
     assert.ok((await call('set_my_webhook',target)).isError);
     const joined=await call('join_room',{room_id:room,name:'Listener'});
     const {agent_id} = JSON.parse(joined.content[0].text);
+    await t.test('a guest timeline read charges one request including the final membership check', async () => {
+      const reads = () => db.prepare('SELECT COUNT(*) AS n FROM agent_requests WHERE agent_id=?').bind(agent_id).first<number>('n');
+      const before = await reads();
+      assert.equal(typeof before, 'number');
+      assert.ok(!(await call('read_room_timeline', {room_id:room})).isError);
+      assert.equal(await reads(), before! + 1);
+    });
     const hook = await call('set_my_webhook',target);
     const {secret} = JSON.parse(hook.content[0].text);
     assert.ok(secret);

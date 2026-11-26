@@ -1,3 +1,5 @@
+import { translateMessage } from './message-translation';
+import { getVerification, updateVerification } from './verification';
 import { createGuestRoom, guestLifetime } from './guest-room-create';
 import { guestMcp } from './guest-mcp';
 import { replyingParticipants, setHumanReplyStatus } from './reply-status';
@@ -107,6 +109,21 @@ publicApi.get('/rooms/:id/inbox/:action', async c => {
   throw new HttpError(404, 'NOT_FOUND', 'ページが見つかりません。');
 });
 
+publicApi.get('/rooms/:id/messages/:message/note', async c => {
+  const room = c.req.param('id');
+  const {viewer} = await previewRoom(c.req.raw,c.env,room);
+  return c.json(await getVerification(c.env,room,c.req.param('message'),{user:viewer},true));
+});
+publicApi.put('/rooms/:id/messages/:message/note', async c => {
+  const room=c.req.param('id');
+  requireOrigin(c.req.raw,c.env);
+  const session=await guestSession(c.req.raw,c.env,room);
+  if (!session) throw new HttpError(401,'GUEST_REQUIRED','Join the room first.');
+  requireCsrf(c.req.raw,session);
+  await enforceIpRate(c.env,c.req.raw,'verification-write',120,3600_000);
+  return c.json(await updateVerification(c.env,room,c.req.param('message'),{user:session.user.id,guestHash:session.tokenHash},await body(c.req.raw)));
+});
+
 publicApi.put('/rooms/:id/reply-status', async c => {
   const room = c.req.param('id');
   requireOrigin(c.req.raw,c.env);
@@ -124,6 +141,14 @@ publicApi.get('/rooms/:id/reply-status', async c => {
   await enforceIpRate(c.env, c.req.raw, 'reply-status', 2400, 3_600_000);
   c.header('Cache-Control', 'private, no-store');
   return c.json(await replyingParticipants(c.env, room, viewer));
+});
+
+publicApi.post('/rooms/:id/messages/:message/translation', async c => {
+  requireOrigin(c.req.raw, c.env);
+  const { viewer: id } = await previewRoom(c.req.raw, c.env, c.req.param('id'));
+  const viewer = { id, preview: true };
+  c.header('Cache-Control', 'private, no-store');
+  return c.json(await translateMessage(c.env, c.req.raw, c.req.param('id'), c.req.param('message'), viewer));
 });
 
 publicApi.get('/rooms/:id/messages', async (c) => {

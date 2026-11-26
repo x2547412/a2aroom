@@ -1,3 +1,4 @@
+import { MessageTranslation } from './MessageTranslation';
 import { RoomListRefresh } from './RoomListRefresh';
 import { IntroAgentInvite, introRoomId } from './IntroAgentInvite';
 import { ScrollItems, ScrollMore } from './ScrollPages';
@@ -26,6 +27,7 @@ import { PrivacyPicker } from './PrivacyPicker';
 import { Modal } from './Modal';
 import { AccountPhoto, type ProfilePhoto } from './AccountPhoto';
 import { EditableAgentName, ParticipantProfile, profileFromLocation } from './ParticipantProfile';
+import { VerificationDialog, noteLabel } from './VerificationNotes';
 import { SwipeReply, useVisibleReads } from './ChatInteractions';
 import { AttachmentSheet, AttachmentView, DraftTray, ReactionCounts, ReactionPicker, Sticker, StickerPicker, attachmentUrl, chatPost, type MediaDraft } from './ChatMedia';
 import { maxFileBytes, maxFiles, uploadLimitLabel, type Attachment, type Reaction, type StickerId } from '../shared/chat';
@@ -518,6 +520,7 @@ function Chat({ refreshHistory, user, detail, items, focus, hasOlder, loadingOld
   const [photo, setPhoto] = useState<Attachment | null>(null);
   const [fileError, setFileError] = useState('');
   const [reacting, setReacting] = useState(false);
+  const [noteMessage,setNoteMessage] = useState<Message|null>(null);
   const { publicRoomId } = useContext(ImageContext);
   const fileUrl = (file: Attachment) => attachmentUrl(detail.room.id, file.id, Boolean(publicRoomId));
   const submission = useRef<{ files: File[]; sticker: StickerId | null; body: string; reply: string | null; id: string } | null>(null);
@@ -568,6 +571,7 @@ function Chat({ refreshHistory, user, detail, items, focus, hasOlder, loadingOld
   const lastItem = items.at(-1)?.id;
   const selected = messages.find((item) => item.id === actionId);
   const byId = new Map(messages.map((item) => [item.id, item]));
+  const repliedTo = selected?.reply_to ? byId.get(selected.reply_to) : undefined;
 
   useLayoutEffect(() => {
     if (!profileAnchor.current && follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
@@ -727,11 +731,12 @@ function Chat({ refreshHistory, user, detail, items, focus, hasOlder, loadingOld
                   {Boolean(message.is_guest) && sender !== '匿名' && <span className="platform-label">{ui("匿名参加", "Guest")}</span>}
                   {agent && <span className="platform-label" title={ui("利用者が設定した接続環境", "Self-reported platform")}><PlatformIcon agentId={message.author_agent_id} fallback={false} />{message.platform}</span>}
                 </div>}
-                <SwipeReply onReply={canSend ? () => { replyTo(message); composerInput.current?.focus({ preventScroll: true }); } : undefined}>
+                <MessageTranslation key={JSON.stringify([message.edited_at, message.body, detail.room.access_mode, detail.room.directory_listed, user.id])} message={message} preview={Boolean(publicRoomId)}>
+                {(displayBody, translationControl) => <><SwipeReply onReply={canSend ? () => { replyTo(message); composerInput.current?.focus({ preventScroll: true }); } : undefined}>
                 {(message.sticker_id || !message.media_label_only || target) && <MessageBubble stickerOnly={Boolean(message.sticker_id && message.media_label_only && !target)} onActions={canSend ? () => openActions(message) : undefined}>
                   {target && <span className="reply-context"><Reply size={13} aria-label={ui("返信先", "Replying to")} /><span>{target.body}</span></span>}
                   {message.sticker_id && <Sticker id={message.sticker_id} />}
-                  {!message.media_label_only && message.body.split(/(@[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9-]+)?)/gi).map((part, i) => part.startsWith('@') ? <span className="mention" key={i}>{part}</span> : part)}
+                  {!message.media_label_only && displayBody.split(/(@[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9-]+)?)/gi).map((part, i) => part.startsWith('@') ? <span className="mention" key={i}>{part}</span> : part)}
                 </MessageBubble>}
                 {Boolean(message.attachments?.length) && <div className="message-attachments">
                   {message.attachments?.map(file => <AttachmentView file={file} key={file.id} url={fileUrl(file)} onPhoto={() => setPhoto(file)} />)}
@@ -740,10 +745,13 @@ function Chat({ refreshHistory, user, detail, items, focus, hasOlder, loadingOld
                 </SwipeReply>
                 <div className="message-meta">
                   {canSend && Boolean(message.attachments?.length) && <button type="button" className="attachment-actions" aria-label={ui("メッセージの操作", "Message actions")} aria-haspopup="dialog" onClick={() => openActions(message)}><MoreHorizontal size={18} /></button>}
+                  {translationControl}
                   <time dateTime={new Date(message.created_at).toISOString()}>{time(message.created_at)}</time>{message.edited_at && <span>{ui("編集済み", "Edited")}</span>}
+                  {Boolean(message.has_note) && <button className="verification-marker" aria-haspopup="dialog" onClick={()=>setNoteMessage(message)}>{noteLabel}{Boolean(message.has_correction) && ui('・訂正あり',' · Corrected')}</button>}
                   {readCount > 0 && <span className="read-receipt">{group || readCount > 1 ? ui("既読", "Read") + readCount : ui("既読", "Read")}</span>}
 
-                </div>
+                </div></>}
+                </MessageTranslation>
               </div>
             </article>
           </div>;
@@ -770,6 +778,8 @@ function Chat({ refreshHistory, user, detail, items, focus, hasOlder, loadingOld
       </form>}
     </div>
     {readError && <p className="receipt-error" role="status">{readError}</p>}
+    {noteMessage && <VerificationDialog key={noteMessage.id} message={noteMessage} userId={user.id} canSend={canSend} listed={Boolean(detail.room.directory_listed)}
+      publicView={Boolean(publicRoomId)} csrf={guestCsrf} onChange={refreshHistory} onClose={()=>setNoteMessage(null)}/>}
     {membershipEvent && <ParticipantProfile key={membershipEvent.id + ':' + (membershipEvent.member_agent_id ?? '')} room={detail.room.id} event={membershipEvent} publicView={Boolean(publicRoomId)} onClose={() => setMembershipEventId(null)} />}
     {profile && <ParticipantProfile key={profile.kind + profile.id} room={detail.room.id} subject={profile} publicView={Boolean(publicRoomId)} onClose={closeProfile} onRename={onAgentChanged} />}
     {sheet === 'attachments' && <Modal title={ui("ライブラリ", "Library")} onClose={() => setSheet(null)}>
@@ -792,6 +802,17 @@ function Chat({ refreshHistory, user, detail, items, focus, hasOlder, loadingOld
       <p className="action-excerpt">{selected.body}</p><div className="action-list">
         <button className="menu-action" onClick={() => action(() => replyTo(selected))}><Reply size={18} />{ui("返信", "Reply")}</button>
         <button className="menu-action" onClick={() => void copyMessage(selected)}><Copy size={18} />{ui("コピー", "Copy")}</button>
+        {((selected.author_user_id===user.id && !selected.author_agent_id) || Boolean(selected.has_note)) &&
+          <button className="menu-action" onClick={()=>action(()=>setNoteMessage(selected))}>{noteLabel}</button>}
+        {selected.reply_to && selected.author_user_id===user.id && !selected.author_agent_id &&
+          Boolean(repliedTo?.has_note) && repliedTo?.author_user_id===user.id && !repliedTo.author_agent_id &&
+          <button className="menu-action" onClick={async()=>{
+            if (!selected.reply_to) return;
+            const path='/rooms/'+encodeURIComponent(detail.room.id)+'/messages/'+encodeURIComponent(selected.reply_to)+'/note';
+            try { await (publicRoomId?publicRequest:request)(path,{method:'PUT',csrf:guestCsrf,body:{kind:'correction',reply_id:selected.id}});
+              setActionId(null);refreshHistory();
+            } catch(e){setActionError(e instanceof Error ? e.message : ui('保存できませんでした。','Could not save.'));}
+          }}>{ui('元のノートの訂正にする','Mark as correction')}</button>}
         {selected.attachments?.filter(file => file.kind === 'video').map(file => <a key={file.id} className="menu-action" href={fileUrl(file) + '?download'} download={file.name}><Download size={18} />{file.name}{ui("を保存", " (save)")}</a>)}
         {actionError && <p className="form-error" role="alert">{actionError}</p>}
         {selected.author_user_id === user.id ? <>

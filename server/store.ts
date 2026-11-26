@@ -1,4 +1,5 @@
-import { guestAccess, guestRoomScope } from './public-access';
+import { verificationFlags } from './verification';
+import { guestAccess, guestRoomScope, roomAudience } from './public-access';
 import { configuredOwnerId } from './account-names';
 import { messageExtras, storeUpload, type RichMessage } from './chat-media';
 import type { Agent, AgentAuth, Bindings, User } from './types';
@@ -47,16 +48,19 @@ export async function requireAgentMember(env: Bindings, auth: AgentAuth, roomId:
 }
 
 
-export async function listMessages(env: Bindings, viewerId: string, roomId: string, afterSeq: number, limit: number, agentId: string, guestHash?: string): Promise<Message[]> {
+export async function listMessages(env: Bindings, viewerId: string, roomId: string, afterSeq: number, limit: number, agentId: string, guestHash?: string, pollingConnection?: string): Promise<Message[]> {
   const result = await env.DB.prepare(`SELECT m.seq, m.id, m.room_id, m.author_user_id, m.author_agent_id,
-      u.is_guest, CASE WHEN u.is_guest = 1 THEN 'Anonymous' ELSE u.account_name END AS account_name, u.display_name, COALESCE(m.agent_name_snapshot, a.name) AS agent_name, COALESCE(m.agent_platform_snapshot, a.platform) AS platform, m.sticker_id, m.media_label_only, m.body,
+      ${verificationFlags}, u.is_guest, CASE WHEN u.is_guest = 1 THEN 'Anonymous' ELSE u.account_name END AS account_name, u.display_name, COALESCE(m.agent_name_snapshot, a.name) AS agent_name, COALESCE(m.agent_platform_snapshot, a.platform) AS platform, m.sticker_id, m.media_label_only, m.body,
       CASE WHEN EXISTS (SELECT 1 FROM messages parent WHERE parent.id = m.reply_to AND parent.room_id = m.room_id AND parent.deleted_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM blocks pb WHERE (pb.user_id = ? AND pb.blocked_user_id = parent.author_user_id) OR (pb.blocked_user_id = ? AND pb.user_id = parent.author_user_id)))
         THEN m.reply_to ELSE NULL END AS reply_to, m.created_at, m.edited_at
     FROM messages m JOIN users u ON u.id = m.author_user_id LEFT JOIN agents a ON a.id = m.author_agent_id
     WHERE m.room_id = ? AND m.seq > ? AND m.deleted_at IS NULL AND ${visibleClause}
-    ${guestHash ? `AND ${guestAccess}` : ''} ORDER BY m.seq ASC LIMIT ?`)
-    .bind(viewerId, viewerId, roomId, afterSeq, viewerId, viewerId, ...(guestHash ? [guestHash,roomId,agentId] : []), Math.max(1, Math.min(100, limit))).all<Message>();
+    ${pollingConnection ? `AND m.author_agent_id IS NOT ? AND EXISTS (
+        SELECT 1 FROM room_members rm JOIN agent_connections c ON c.agent_id=rm.agent_id
+        JOIN agents current ON current.id=rm.agent_id WHERE rm.room_id=m.room_id AND rm.kind='agent'
+        AND c.id=? AND rm.agent_id=? AND c.revoked_at IS NULL AND current.deleted_at IS NULL)` : ''} ${guestHash ? `AND ${guestAccess}` : ''} ORDER BY m.seq ASC LIMIT ?`)
+    .bind(viewerId, viewerId, roomId, afterSeq, viewerId, viewerId, ...(pollingConnection ? [agentId, pollingConnection, agentId] : []), ...(guestHash ? [guestHash,roomId,agentId] : []), Math.max(1, Math.min(100, limit))).all<Message>();
   const extras = await messageExtras(env, viewerId, result.results.map(m => m.id), agentId);
   return result.results.map(m => ({ ...m, attachments: extras.files.get(m.id) ?? [], reactions: extras.counts.get(m.id) ?? [] }));
 }
@@ -248,6 +252,20 @@ const activeRoomConnection = `EXISTS (SELECT 1 FROM room_members rm
   JOIN agent_connections c ON c.agent_id=rm.agent_id AND c.revoked_at IS NULL
   JOIN agents a ON a.id=rm.agent_id AND a.deleted_at IS NULL
   WHERE rm.kind='agent' AND rm.room_id=? AND rm.agent_id=? AND c.id=? AND a.owner_id=?)`;
+
+// Revalidate after assembling a response across multiple D1/R2 reads, without charging another read.
+export async function confirmAgentRoomRead(env: Bindings, auth: AgentAuth, room: string) {
+  const guest = guestRoomScope(auth.guestHash, room, auth.agent.id);
+  const keyScope = auth.guestKeyHash
+    ? ` AND EXISTS (SELECT 1 FROM guest_agent_handles h JOIN rooms r ON r.id=?
+        WHERE h.agent_id=? AND h.key_hash=? AND ${roomAudience('h.agent_id')})` : '';
+  const allowed = await env.DB.prepare(`SELECT 1 WHERE ${activeRoomConnection}${guest.sql}${keyScope}`)
+    .bind(room, auth.agent.id, auth.connectionId, auth.agent.owner_id, ...guest.args,
+      ...(auth.guestKeyHash ? [room, auth.agent.id, auth.guestKeyHash] : [])).first();
+  if (auth.expiresAt !== undefined && Date.now() >= auth.expiresAt * 1000)
+    throw new HttpError(401, 'TOKEN_EXPIRED', 'Refresh your access token.');
+  if (!allowed) throw new HttpError(403, 'ROOM_UNAVAILABLE', 'Room access is no longer available.');
+}
 
 export async function searchMessages(env: Bindings, auth: AgentAuth, room: string, query: string, before: number | undefined, limit: number) {
   await requireAgentMember(env, auth, room);

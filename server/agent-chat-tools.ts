@@ -1,3 +1,4 @@
+import { registerVerificationTools } from './verification-tools';
 import { guestRoomScope } from './public-access';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
@@ -11,7 +12,7 @@ import { reactions } from '../shared/chat';
 import { readAgentAttachment, setAgentReaction } from './chat-media';
 import { messageDirectoryChanged } from './directory-hub';
 import { setReplyStatus } from './reply-status';
-import { changeAgentMessage, requireAgentMember, searchMessages } from './store';
+import { changeAgentMessage, confirmAgentRoomRead, requireAgentMember, searchMessages } from './store';
 import type { AgentAuth, Bindings } from './types';
 
 type Reply = {content:{type:'text';text:string}[];isError?:boolean};
@@ -19,29 +20,36 @@ export type ToolRunner = (operation:()=>Promise<unknown>)=>Promise<Reply>;
 export function registerChatTools(server:McpServer, env:Bindings, ctx:Pick<ExecutionContext,'waitUntil'>, request:Request,
   roomField:z.ZodString | z.ZodOptional<z.ZodString>,
   resolve:(room?:string)=>Promise<{auth:AgentAuth;room:string}>, run:ToolRunner) {
+  registerVerificationTools(server,env,roomField,resolve,run);
   server.registerTool('read_room_timeline',{description:'Read the latest messages, receipts and membership events. Page backward with the oldest item’s seq.event_order (0 for a message).',
     inputSchema:{room_id:roomField,before:z.string().max(48).optional()},annotations:{readOnlyHint:true}},
     ({room_id,before})=>run(async()=>{
       const {auth,room}=await resolve(room_id);
-      return roomTimelinePage(env,auth.agent.owner_id,room,before,auth.agent.id);
+      const page = await roomTimelinePage(env,auth.agent.owner_id,room,before,auth.agent.id);
+      await confirmAgentRoomRead(env,auth,room);
+      return page;
     }));
   server.registerTool('get_room',{description:'Read settings and tags of a joined room.',inputSchema:{room_id:roomField},annotations:{readOnlyHint:true}},
     ({room_id})=>run(async()=>{
       const {auth,room}=await resolve(room_id);
       const settings=await requireAgentMember(env,auth,room);
       const tags=await readTags(env,room).all<{label:string}>();
+      await confirmAgentRoomRead(env,auth,room);
       return {room_id:room,name:settings.name,description:settings.description,access_mode:settings.access_mode,directory_listed:Boolean(settings.directory_listed),tags:tags.results.map(t=>t.label)};
     }));
   server.registerTool('get_member_profile',{description:'Read the room profile of a participant.',inputSchema:{room_id:roomField,kind:z.enum(['human','agent']),subject_id:z.string()},annotations:{readOnlyHint:true}},
     ({room_id,kind,subject_id})=>run(async()=>{
       const {auth,room}=await resolve(room_id);
       const profile=await roomProfile(env,room,auth.agent.owner_id,kind,subject_id,false,auth.agent.id);
-      return {...profile,can_rename:kind==='agent' && subject_id===auth.agent.id};
+      await confirmAgentRoomRead(env,auth,room);
+      return {...profile,can_rename:kind==='agent' && subject_id===auth.agent.id && !profile.guest_handle};
     }));
   server.registerTool('get_reply_status',{description:'See which participants are drafting a reply.',inputSchema:{room_id:roomField},annotations:{readOnlyHint:true}},
     ({room_id})=>run(async()=>{
       const {auth,room}=await resolve(room_id);
-      return replyingParticipants(env,room,auth.agent.owner_id);
+      const participants = await replyingParticipants(env,room,auth.agent.owner_id);
+      await confirmAgentRoomRead(env,auth,room);
+      return participants;
     }));
   server.registerTool('report_message',{description:'Report a visible message to the moderators as this agent.',inputSchema:{room_id:roomField,message_id:z.string(),reason:z.string().trim().min(1).max(1000)}},
     ({room_id,message_id,reason})=>run(async()=>{
@@ -67,7 +75,9 @@ export function registerChatTools(server:McpServer, env:Bindings, ctx:Pick<Execu
   }, async ({ room_id: requestedRoom, attachment_id, offset }) => {
     try {
       const {auth, room: room_id} = await resolve(requestedRoom);
-      return await readAgentAttachment(env, auth.agent.owner_id, auth.agent.id, room_id, attachment_id, offset);
+      const file = await readAgentAttachment(env, auth.agent.owner_id, auth.agent.id, room_id, attachment_id, offset);
+      await confirmAgentRoomRead(env,auth,room_id);
+      return file;
     } catch (error) { return run(async () => { throw error; }); }
   });
 
@@ -129,6 +139,7 @@ export function registerChatTools(server:McpServer, env:Bindings, ctx:Pick<Execu
       WHERE rm.room_id = ? AND (u.is_guest = 0 OR EXISTS
         (SELECT 1 FROM guest_sessions gs WHERE gs.user_id = u.id AND gs.room_id = rm.room_id AND gs.expires_at > ?)) AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.user_id=? AND b.blocked_user_id=u.id) OR (b.blocked_user_id=? AND b.user_id=u.id)) ORDER BY rm.joined_at`)
       .bind(room_id, Date.now(), auth.agent.owner_id, auth.agent.owner_id).all();
+    await confirmAgentRoomRead(env,auth,room_id);
     return { members: members.results, note: 'Platforms are owner-declared.' };
   }));
 

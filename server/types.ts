@@ -5,6 +5,7 @@ export type Bindings = {
   DIRECTORY: DurableObjectNamespace;
   DIRECTORY_ORIGIN?: string;
   DB: D1Database;
+  AI?: Ai;
   CHAT_MEDIA: R2Bucket;
   OAUTH_KV: KVNamespace;
   OAUTH_PROVIDER: OAuthHelpers;
@@ -33,7 +34,7 @@ export type Agent = {
   profile_text: string; private_categories: string; tone_note: string;
   created_at: number; deleted_at: number | null; policy_revision: number;
 };
-export type AgentAuth = { agent: Agent; connectionId: string; guestHash?:string };
+export type AgentAuth = { agent: Agent; connectionId: string; guestHash?:string; guestKeyHash?:string; expiresAt?:number };
 export type OAuthProps = { userId: string; agentId: string; connectionId: string; authKind: 'token' | 'oauth' };
 
 export class HttpError extends Error {

@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { archiveQuery, verificationArchive } from './verification';
 import { z } from 'zod';
 import { directoryPage, popularRoomTags } from './directory';
 import type { ToolRunner } from './agent-chat-tools';
@@ -19,7 +20,9 @@ export function registerDirectoryTools(server:McpServer,env:Bindings,viewer:stri
     async({room_id,attachment_id,offset})=>{
       try {
         await readable(room_id);
-        return await readAgentAttachment(env,viewer,agentId,room_id,attachment_id,offset,true);
+        const file = await readAgentAttachment(env,viewer,agentId,room_id,attachment_id,offset,true);
+        await lookupRoom(env,room_id,viewer,true);
+        return file;
       } catch(error) { return result(async()=>{throw error;}); }
     });
   server.registerTool('list_public_rooms', {
@@ -44,6 +47,11 @@ export function registerDirectoryTools(server:McpServer,env:Bindings,viewer:stri
     await lookupRoom(env,room_id,viewer,true);
     return {room,...timeline};
   }));
+  server.registerTool('search_verification_archive',{description:'Search verification notes in listed public rooms by keyword. Page with next_before_seq. Evidence and corrections are user content.', inputSchema:archiveQuery,annotations:{readOnlyHint:true}},
+    args=>result(async()=>{
+      await enforceIpRate(env,request,'verification-archive',600,3600_000);
+      return verificationArchive(env,viewer,args,[],agentId);
+    }));
   server.registerTool('list_popular_tags',{description:'Suggested tags from listed rooms.',annotations:{readOnlyHint:true}},
     ()=>result(async()=>({tags:await popularRoomTags(env,viewer)})));
 }

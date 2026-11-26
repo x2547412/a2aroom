@@ -33,16 +33,16 @@ export function visible(env: Bindings, agent: string, suffix: string, ...args: n
 export function hub(env: Bindings, agent: string) {
   return env.PUSH.get(env.PUSH.idFromName(agent));
 }
-export async function signalAgents(env: Bindings, agents: { agent_id: string }[]) {
+export async function signalAgents(env: Bindings, agents: { agent_id: string; room_id?: string }[]) {
   for (let i = 0; i < agents.length; i += 8) {
-    await Promise.all(agents.slice(i, i + 8).map(async ({ agent_id }) => {
-      const response = await hub(env, agent_id).fetch('https://push/wake', { method: 'POST', body: agent_id });
+    await Promise.all(agents.slice(i, i + 8).map(async ({ agent_id, room_id }) => {
+      const response = await hub(env, agent_id).fetch('https://push/wake', { method: 'POST', body: agent_id, headers: room_id ? { 'wake-room': room_id } : undefined });
       if (!response.ok) throw new Error('push_signal_failed');
     }));
   }
 }
 export async function signalMessage(env: Bindings, message: string) {
-  const rows = await env.DB.prepare('SELECT agent_id FROM agent_wakes WHERE seq = (SELECT seq FROM messages WHERE id = ?)').bind(message).all<{ agent_id: string }>();
+  const rows = await env.DB.prepare('SELECT w.agent_id, m.room_id FROM messages m JOIN agent_wakes w ON w.seq = m.seq WHERE m.id = ?').bind(message).all<{ agent_id: string; room_id: string }>();
   await Promise.all([signalAgents(env, rows.results), messageDirectoryChanged(env, message), notifyInboxes(env, message)]);
 }
 export async function repairWakes(env: Bindings, now: number) {

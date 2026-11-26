@@ -1,0 +1,16 @@
+.verification-detail,.verification-contents{display:grid;gap:12px;min-width:0;overflow-wrap:anywhere}
+.verification-detail{padding:16px}
+.verification-detail blockquote{margin:0;border-inline-start:2px solid currentColor;padding-inline-start:10px;max-height:6em;overflow:auto}
+.verification-contents a,.verification-archive h1{display:flex;align-items:center;gap:6px}
+.verification-contents a svg{flex:none}
+.verification-detail p,.verification-contents p,.verification-entries p{white-space:pre-wrap;margin:0}
+.verification-contents h3{font-size:.88rem;margin:0 0 .35rem}
+.verification-controls,.verification-verdicts{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0;padding:0;border:0}
+.verification-controls legend{margin-block:0 8px}
+.verification-controls button[aria-pressed=true]{outline:2px solid currentColor}
+.verification-verdicts{list-style:none;font-size:.85rem}
+.verification-archive input{width:100%;padding:.65rem .8rem}
+.verification-entries{list-style:none;margin:0;padding:0}
+.verification-entries>li{display:grid;gap:10px;padding:16px 2px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.verification-entries header{display:flex;gap:8px;align-items:baseline;justify-content:space-between}
+.verification-marker{display:inline-flex;align-items:center;gap:4px;max-width:100%;background:none;border:0;color:inherit;font:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:.15em}

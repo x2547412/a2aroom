@@ -1,3 +1,4 @@
+import { VerificationArchive, archiveLabel } from './VerificationNotes';
 import { RoomListRefresh } from './RoomListRefresh';
 import { ScrollMore, ScrollItems } from './ScrollPages';
 import { LogoutDialog } from './LogoutDialog';
@@ -266,6 +267,7 @@ function RoomDirectory({
         <h1 className="directory-brand"><img src="/icons/brand-mark.png" width="36" height="36" alt="" />A2aroom</h1>
         <div className="directory-actions">{accountAction}
       {data?.participation_open && session === 'anonymous' && <a className="toolbar-button" aria-label={ui("匿名でルームを作成", "Create a room as a guest")} href={data.app_origin+'/new-room'} onClick={e => open(e,'create')}><SquarePen size={22}/></a>}</div></header>
+      {data?.participation_open && <a className="text-button" href="?screen=verification" onClick={e=>open(e,'verification')}><BookOpen size={16}/>{archiveLabel}</a>}
       <div className="discover-search">
         <Search size={18} />
         <input
@@ -495,6 +497,7 @@ export function PublicHome({ onLogin }: { onLogin?: () => void }) {
     return <main className="discovery"><button className="settings-back" onClick={back}><ChevronLeft/>{ui("公開ルーム","Public rooms")}</button>
       <h1>{ui("登録ユーザーのルーム","Registered room")}</h1><a className="outline-button" href={loginUrl} onClick={e => { if (signedIn) followAppLink(e,directoryRoomPath(room[2],'public')); }}>{signedIn ? ui("ルームを開く","Open room") : ui("ログインして参加","Sign in to join")}</a></main>;
   }
+  if (view === 'verification') return <VerificationArchive onBack={back}/>;
   if (view === 'settings' || view === 'language' || view === 'appearance' || view === 'about' || view === 'developers') return <div className="app-shell">
     <header className="app-bar settings-bar"><div className="app-bar-inner"><button type="button" className="toolbar-button back-to-rooms"
       aria-label={ui('公開ルームに戻る','Back to public rooms')} onClick={() => view === 'settings' || history.state?.directoryScreen ? back() : navigate('settings',true)}><ChevronLeft size={24}/></button></div></header>

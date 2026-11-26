@@ -1,3 +1,4 @@
+import { archiveIdentity, verificationArchive } from './verification';
 import { bodyLimit } from 'hono/body-limit';
 import { Hono, type Context } from 'hono';
 import { html } from 'hono/html';
@@ -125,6 +126,13 @@ site.post('/contact', async (c) => {
   return json ? c.json({received:true}, 201) : c.redirect('/contact/received', 303);
 });
 
+site.get('/api/explore/verification', async c => {
+  c.header('Cache-Control','private, no-store');
+  await enforceIpRate(c.env,c.req.raw,'verification-archive',600,3600_000);
+  const {viewer,guestHashes}=await archiveIdentity(c.req.raw,c.env);
+  const before=c.req.query('before_seq');
+  return c.json(await verificationArchive(c.env,viewer,{query:c.req.query('query'),before_seq:before===undefined ? undefined : Number(before)},guestHashes));
+});
 site.get('/api/explore/rooms', async c => {
   const session = await getSession(c.req.raw, c.env);
   c.header('Cache-Control', 'private, no-store');

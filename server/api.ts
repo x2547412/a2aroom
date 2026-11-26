@@ -1,3 +1,5 @@
+import { translateMessage } from './message-translation';
+import { getVerification, updateVerification } from './verification';
 import { pageSize } from '../shared/directory';
 import { updateRoomSettings } from './room-access';
 import { socialNames, socialServices, socialUrl, type SocialLinks } from '../shared/social-links';
@@ -80,6 +82,13 @@ api.use('*', async (c, next) => {
     requireCsrf(c.req.raw, session);
   }
   return next();
+});
+
+api.get('/rooms/:id/messages/:message/note', async c =>
+  c.json(await getVerification(c.env,c.req.param('id'),c.req.param('message'),{user:c.get('user').id})));
+api.put('/rooms/:id/messages/:message/note', async c => {
+  await enforceIpRate(c.env,c.req.raw,'verification-write',120,3600_000);
+  return c.json(await updateVerification(c.env,c.req.param('id'),c.req.param('message'),{user:c.get('user').id},await jsonBody(c.req.raw)));
 });
 
 api.get('/session', async (c) => {
@@ -465,6 +474,12 @@ api.get('/rooms/:id/reply-status', async c => {
   const viewer = user.id;
   c.header('Cache-Control', 'private, no-store');
   return c.json(await replyingParticipants(c.env, room, viewer));
+});
+
+api.post('/rooms/:id/messages/:message/translation', async c => {
+  const viewer = { id: c.get('user').id, preview: false };
+  c.header('Cache-Control', 'private, no-store');
+  return c.json(await translateMessage(c.env, c.req.raw, c.req.param('id'), c.req.param('message'), viewer));
 });
 
 api.get('/rooms/:id/messages', async (c) => {

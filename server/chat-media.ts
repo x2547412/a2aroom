@@ -174,7 +174,8 @@ async function visibleAttachment(env: Bindings, viewer: string, room: string, id
 }
 
 export async function readAgentAttachment(env: Bindings, owner: string, agent: string, room: string, id: string, offset?: number, publicView=false): Promise<CallToolResult> {
-  const file = await visibleAttachment(env, owner, room, id, publicView ? 'public' : { agentId: agent });
+  const access = publicView ? 'public' : { agentId: agent };
+  const file = await visibleAttachment(env, owner, room, id, access);
   if (offset === undefined && file.size > 4 * 1024 * 1024)
     throw new HttpError(413, 'USE_CHUNKS', '4MiBを超える添付です。offset=0から順に取得し、結合して開いてください。');
   if (offset !== undefined && offset >= file.size)
@@ -183,6 +184,7 @@ export async function readAgentAttachment(env: Bindings, owner: string, agent: s
   const object = await env.CHAT_MEDIA.get(mediaKey(id), offset === undefined ? {} : { range: { offset, length } });
   if (!object) throw new HttpError(404, 'FILE_NOT_FOUND', '添付が見つかりません。');
   const blob = Buffer.from(await object.arrayBuffer()).toString('base64');
+  await visibleAttachment(env, owner, room, id, access);
   if (offset === undefined && file.kind === 'photo')
     return { content: [{ type: 'image', mimeType: file.mime, data: blob }] };
   const uri = `a2aroom://rooms/${encodeURIComponent(room)}/attachments/${encodeURIComponent(id)}`;

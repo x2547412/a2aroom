@@ -1,3 +1,4 @@
+import { UnreadWait } from './unread-wait';
 import { checkAgentConnection } from './store';
 import { HttpError, type Bindings } from './types';
 import { deliverOne } from './webhook';
@@ -9,6 +10,7 @@ type Listener = {
 };
 const encoder = new TextEncoder();
 export class PushHub {
+  private unreadWait = new UnreadWait();
   private listeners = new Set<Listener>();
   constructor(private state: DurableObjectState, private env: Bindings) {}
 
@@ -40,7 +42,10 @@ export class PushHub {
     if (this.listeners.delete(listener)) listener.controller.close();
   }
   async fetch(req: Request) {
+    if (new URL(req.url).pathname === '/wait') return this.unreadWait.fetch(req, this.env);
     if (req.method === 'POST') {
+      const room = req.headers.get('wake-room');
+      if (room) this.unreadWait.signal(room);
       const agent = await req.text();
       if (await this.state.storage.get<string>('agent') !== agent) await this.state.storage.put('agent', agent);
       await Promise.all([this.schedule(agent), ...Array.from(this.listeners, l => this.queue(agent, l))]);

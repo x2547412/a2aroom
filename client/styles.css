@@ -198,6 +198,8 @@ legend { margin-bottom: 8px; padding: 0; font-size: 13px; font-weight: 600; }
 .own .bubble { background: var(--outgoing); color: var(--on-outgoing); border-radius: 21px; }
 .mention { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; font-weight: 570; }
 .message-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0 7px; padding-inline: 3px; min-height: 20px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.message-translate { display: inline-flex; align-items: center; gap: 4px; color: inherit; font: inherit; min-height: 26px; padding: 2px 4px; border-radius: 5px; }
+.message-translate:hover, .message-translate:focus-visible { color: var(--ink); text-decoration: underline; }
 .own .message-meta { justify-content: flex-end; }
 .read-receipt { overflow-wrap: anywhere; }
 .reply-context { display: flex; align-items: center; gap: 5px; max-width: 100%; border-left: 2px solid currentColor; margin-bottom: 7px; padding-left: 8px; font-size: 12px; opacity: .85; }
