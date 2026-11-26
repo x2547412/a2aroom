@@ -1,0 +1,10 @@
+:root {
+  --button-sky: light-dark(#80cfff, #79c6ff);
+  --button-blue: light-dark(#a0afff, #99a5ff);
+  --button-lilac: light-dark(#d5b3ff, #ccabfa);
+  --button-ink: #192046;
+  --button-brand: linear-gradient(112deg, var(--button-sky), var(--button-blue) 54%, var(--button-lilac));
+  --button-sheen: inset 0 1px 0 #ffffff70, inset 0 -1px 0 #40368726, 0 1px 3px #29265e13;
+  --button-tint: linear-gradient(112deg, color-mix(in srgb, var(--button-sky) 14%, var(--surface)),
+    color-mix(in srgb, var(--button-lilac) 17%, var(--surface)));
+}

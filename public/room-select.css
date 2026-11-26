@@ -1,0 +1,56 @@
+.room-select-trigger, .room-select-native select {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid light-dark(#cbccd4, #555864);
+  border-radius: 12px;
+  color: var(--ink, light-dark(#17181c, #f1f1f4));
+  background-color: var(--paper, light-dark(#fff, #121316));
+  font: inherit;
+  font-size: 16px;
+  font-weight: 400;
+  text-align: start;
+}
+.room-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  cursor: pointer;
+}
+.room-select-trigger svg { flex: none; color: var(--muted, light-dark(#666971, #a3a5b2)); }
+.room-select-trigger[data-state=open] svg { transform: rotate(180deg); }
+.room-select-trigger[data-state=open], .room-select-trigger:hover { border-color: var(--muted, light-dark(#666971, #a3a5b2)); }
+.room-select-native { display: inline-grid; position: relative; max-width: 100%; min-width: 0; }
+.room-select-native select { appearance: none; margin: 0; padding-inline-end: 42px; }
+.room-select-native::after {
+  content: ''; position: absolute; inset-inline-end: 16px; top: 50%; width: 7px; height: 7px;
+  color: var(--muted, light-dark(#666971, #a3a5b2)); border: solid currentColor; border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-70%) rotate(45deg); pointer-events: none;
+}
+.room-select-trigger:focus-visible, .room-select-native select:focus-visible {
+  outline: 2px solid var(--accent, light-dark(#02639d, #acdbf8)); outline-offset: 2px;
+}
+.room-select-popup {
+  box-sizing: border-box; z-index: 50; min-width: var(--radix-select-trigger-width);
+  max-width: var(--radix-select-content-available-width); max-height: var(--radix-select-content-available-height);
+  overflow: hidden; border: 1px solid var(--line, light-dark(#e7e7ec, #33353e)); border-radius: 14px;
+  background: var(--surface, light-dark(#fff, #202126)); color: var(--ink, light-dark(#17181c, #f1f1f4));
+  box-shadow: var(--popover-shadow, 0 8px 32px light-dark(#15162a17, #0006));
+}
+.room-select-options { box-sizing: border-box; padding: 5px; }
+.room-select-option {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 38px;
+  box-sizing: border-box; padding: 6px 10px; border-radius: 9px; font-size: 15px; line-height: 1.45;
+  cursor: pointer; user-select: none; overflow-wrap: anywhere;
+}
+.room-select-option[data-highlighted] { outline: none; background: var(--fill, light-dark(#f1f1f4, #292b33)); }
+.room-select-option[data-state=checked] { font-weight: 600; }
+.room-select-option svg { display: block; color: var(--accent, light-dark(#02639d, #acdbf8)); }
+@media (forced-colors: active) {
+  .room-select-option[data-highlighted] { outline: 2px solid Highlight; outline-offset: -2px; }
+}
+[data-select-field] { margin-block-start: 6px; }
+[data-select-field] > .room-select-native { width: 100%; }

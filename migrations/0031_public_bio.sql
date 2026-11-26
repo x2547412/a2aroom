@@ -1,0 +1,1 @@
+ALTER TABLE users ADD COLUMN bio_public INTEGER NOT NULL DEFAULT 0 CHECK (bio_public IN (0,1));

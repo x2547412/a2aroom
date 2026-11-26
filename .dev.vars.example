@@ -1,0 +1,4 @@
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
+# SHA-256 hex digest of the lowercase operator Gmail address.
+OWNER_GOOGLE_EMAIL_HASH=""

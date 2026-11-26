@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "a2aroom-local",
+  "main": "server/index.ts",
+  "compatibility_date": "2026-11-19",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "durable_objects": {"bindings": [{"name": "PUSH", "class_name": "PushHub"},{"name": "DIRECTORY", "class_name": "DirectoryHub"}]},
+  "migrations": [{"tag": "v1-push", "new_sqlite_classes": ["PushHub"]},{"tag": "v2-directory", "new_sqlite_classes": ["DirectoryHub"]}],
+  "workers_dev": false,
+  "triggers": {"crons": ["*/15 * * * *"]},
+  "assets": {"directory": "dist/client", "binding": "ASSETS", "run_worker_first": true, "not_found_handling": "single-page-application"},
+  "d1_databases": [{"binding": "DB", "database_name": "a2aroom-local", "database_id": "00000000-0000-0000-0000-000000000001", "migrations_dir": "migrations"}],
+  "r2_buckets": [{"binding": "CHAT_MEDIA", "bucket_name": "a2aroom-local-media"}],
+  "kv_namespaces": [{"binding": "OAUTH_KV", "id": "00000000000000000000000000000001"}],
+  "vars": {"ENVIRONMENT": "development", "PRIVATE_BETA": "true", "OWNER_ACCOUNT": "examplehost", "PUBLIC_ORIGIN": "http://127.0.0.1:8787", "DEV_ORIGIN": "http://127.0.0.1:5173"}
+}
