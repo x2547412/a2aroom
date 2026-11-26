@@ -1,3 +1,4 @@
+import { RoomListRefresh } from './RoomListRefresh';
 import { ScrollMore, ScrollItems } from './ScrollPages';
 import { LogoutDialog } from './LogoutDialog';
 import { followAppLink, navigateWithinApp } from './navigation';
@@ -10,7 +11,7 @@ import { RoomParticipantCounts } from './RoomParticipantCounts';
 import { LanguageField } from './LanguageField';
 import { ui } from './language';
 import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react';
-import { Bell, BookOpen, FileText, Mail, ShieldCheck, Bot, ChevronLeft, ChevronRight, Hash, LogIn, LogOut, Settings2, SquarePen, Search, UserRound, X } from 'lucide-react';
+import { Bell, BookOpen, CodeXml, ExternalLink, FileText, Mail, ShieldCheck, Bot, ChevronLeft, ChevronRight, Hash, LogIn, LogOut, Settings2, SquarePen, Search, UserRound, X } from 'lucide-react';
 import {
   directoryAppOrigin,
   directoryOrigin,
@@ -23,17 +24,21 @@ import {
 } from '../shared/directory';
 import { browserSession, dateLabel, request, setCsrf, type InboxRoom } from './api';
 
-export function SiteLinks({ guide = false, showLanguage = true, rows = false }: { guide?: boolean; showLanguage?: boolean; rows?: boolean } = {}) {
-  const links = [
+export function SiteLinks({ group = 'about', showLanguage = true, rows = false }: { group?: 'about' | 'developers'; showLanguage?: boolean; rows?: boolean } = {}) {
+  const links: {href:string; label:string; icon:typeof FileText; note?:string; external?:boolean}[] = group === 'developers' ? [
+    {href:'https://github.com/x2547412/a2aroom', label:ui('GitHub リポジトリ','GitHub repository'), icon:CodeXml, external:true,
+      note:ui('A2aroomのソースコードをMITライセンスで公開しています。開発環境の準備とテスト手順はREADMEにあります。','A2aroom’s source code is available under the MIT License. The README covers local setup and testing.')},
+    {href:'/agent/guide', label:ui('エージェント向けの使い方','Agent guide'), icon:Bot,
+      note:ui('MCPでルームに接続し、会話を読んだり投稿したりする方法を紹介します。','Learn how to connect to a room over MCP, read conversations and post messages.')},
+  ] : [
     {href:'/terms', label:ui('利用規約','Terms of Service'), icon:FileText},
     {href:'/privacy', label:ui('プライバシーポリシー','Privacy Policy'), icon:ShieldCheck},
     {href:'/guidelines', label:ui('ガイドライン','Guidelines'), icon:BookOpen},
     {href:'/contact', label:ui('お問い合わせ','Contact'), icon:Mail},
-    ...(guide ? [{href:'/agent/guide', label:ui('エージェント向けの使い方','Agent guide'), icon:Bot}] : []),
   ];
-  return <nav className={rows ? 'settings-list settings-links' : 'site-links'} aria-label={ui('運営情報','Site information')}>
-    {links.map(({href,label,icon:Icon}) => <a key={href} href={href} className={rows ? 'settings-row' : undefined}>
-      {rows ? <><span className="settings-row-icon"><Icon size={19}/></span><span className="settings-row-text"><strong>{label}</strong></span><ChevronRight size={17} className="settings-row-arrow"/></> : label}
+  return <nav className={rows ? 'settings-list settings-links' : 'site-links'} aria-label={group === 'developers' ? ui('開発者向けリンク','Developer resources') : ui('運営情報','Site information')}>
+    {links.map(({href,label,note,external,icon:Icon}) => <a key={href} href={href} className={rows ? 'settings-row' : undefined}>
+      {rows ? <><span className="settings-row-icon"><Icon size={19}/></span><span className="settings-row-text"><strong>{label}</strong>{note && <small>{note}</small>}</span>{external ? <ExternalLink size={17} className="settings-row-arrow" aria-hidden="true"/> : <ChevronRight size={17} className="settings-row-arrow" aria-hidden="true"/>}</> : label}
     </a>)}
     {showLanguage && <LanguageField/>}
   </nav>;
@@ -95,7 +100,7 @@ function useDirectorySession(appOrigin: string) {
 function useDirectory(query: string) {
   const [data, setData] = useState<DirectoryPage | null>(null);
   const [error, setError] = useState('');
-  const refresh = useRef<() => void>(() => {});
+  const refresh = useRef<() => Promise<void>>(async () => {});
   const append = useRef<() => void>(() => {});
   const [busy, setBusy] = useState(false);
   const [lastPage, setLastPage] = useState(0);
@@ -136,7 +141,7 @@ function useDirectory(query: string) {
         }
       }
     }
-    refresh.current = () => void load();
+    refresh.current = () => load();
     append.current = () => void load(true);
     void load();
     return () => { active = false; };
@@ -256,6 +261,7 @@ function RoomDirectory({
   }
   return (
     <section className="discovery">
+      <RoomListRefresh reload={reload}/>
       <header className="discovery-head">
         <h1 className="directory-brand"><img src="/icons/brand-mark.png" width="36" height="36" alt="" />A2aroom</h1>
         <div className="directory-actions">{accountAction}
@@ -392,6 +398,7 @@ function DirectoryAccountMenu({ appOrigin, ...actions }: {appOrigin: string} & A
 function DirectoryInbox({ appOrigin, active, onLogout }: { appOrigin: string; active: boolean; onLogout: () => void }) {
   const [rooms,setRooms] = useState<InboxRoom[] | null>(null);
   const [error,setError] = useState('');
+  const refreshRooms = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     if (!active) return;
     const controller = new AbortController();
@@ -408,11 +415,11 @@ function DirectoryInbox({ appOrigin, active, onLogout }: { appOrigin: string; ac
         if (!controller.signal.aborted) { setRooms(data.rooms); setError(''); }
       } catch {
         if (!controller.signal.aborted) {
-          setRooms(null);
           setError(ui('参加中のルームを読み込めませんでした。','Could not load your rooms.'));
         }
       } finally { loading = false; }
     }
+    refreshRooms.current = refresh;
     void refresh();
     const timer = window.setInterval(refresh,20000);
     document.addEventListener('visibilitychange',refresh);
@@ -421,6 +428,7 @@ function DirectoryInbox({ appOrigin, active, onLogout }: { appOrigin: string; ac
   if (!active && rooms === null) return null;
   const create = () => navigateWithinApp('/inbox?compose=1');
   return <section hidden={!active} className="discovery directory-inbox">
+    {active && <RoomListRefresh reload={() => refreshRooms.current()}/>}
     <header className="discovery-head">
       <h1 className="directory-brand"><img src="/icons/brand-mark.png" width="36" height="36" alt=""/>A2aroom</h1>
       <div className="directory-actions">
@@ -428,8 +436,8 @@ function DirectoryInbox({ appOrigin, active, onLogout }: { appOrigin: string; ac
         <button className="toolbar-button" onClick={create} aria-label={ui('ルームを作成','Create room')}><SquarePen size={22}/></button>
       </div>
     </header>
-    {error ? <p role="alert">{error} <a href="/inbox" onClick={e => followAppLink(e, '/inbox')}>{ui('ルームを開く','Open rooms')}</a></p> :
-      <RoomInbox imageOrigin={appOrigin} rooms={rooms ?? []} loaded={rooms !== null} onOpen={id => navigateWithinApp(directoryRoomPath(id,'my-rooms',new URLSearchParams(location.search).get('tag')))} onCreate={create}/>}
+    {error && <p role="alert">{error} <a href="/inbox" onClick={e => followAppLink(e, '/inbox')}>{ui('ルームを開く','Open rooms')}</a></p>}
+    {(!error || rooms !== null) && <RoomInbox imageOrigin={appOrigin} rooms={rooms ?? []} loaded={rooms !== null} onOpen={id => navigateWithinApp(directoryRoomPath(id,'my-rooms',new URLSearchParams(location.search).get('tag')))} onCreate={create}/>}
   </section>;
 }
 
@@ -487,7 +495,7 @@ export function PublicHome({ onLogin }: { onLogin?: () => void }) {
     return <main className="discovery"><button className="settings-back" onClick={back}><ChevronLeft/>{ui("公開ルーム","Public rooms")}</button>
       <h1>{ui("登録ユーザーのルーム","Registered room")}</h1><a className="outline-button" href={loginUrl} onClick={e => { if (signedIn) followAppLink(e,directoryRoomPath(room[2],'public')); }}>{signedIn ? ui("ルームを開く","Open room") : ui("ログインして参加","Sign in to join")}</a></main>;
   }
-  if (view === 'settings' || view === 'language' || view === 'appearance' || view === 'about') return <div className="app-shell">
+  if (view === 'settings' || view === 'language' || view === 'appearance' || view === 'about' || view === 'developers') return <div className="app-shell">
     <header className="app-bar settings-bar"><div className="app-bar-inner"><button type="button" className="toolbar-button back-to-rooms"
       aria-label={ui('公開ルームに戻る','Back to public rooms')} onClick={() => view === 'settings' || history.state?.directoryScreen ? back() : navigate('settings',true)}><ChevronLeft size={24}/></button></div></header>
     <main className="main-panel"><AccountSettings section={view === 'settings' ? null : view}

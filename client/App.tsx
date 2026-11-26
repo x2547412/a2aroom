@@ -1,3 +1,4 @@
+import { RoomListRefresh } from './RoomListRefresh';
 import { IntroAgentInvite, introRoomId } from './IntroAgentInvite';
 import { ScrollItems, ScrollMore } from './ScrollPages';
 import { LogoutDialog } from './LogoutDialog';
@@ -48,8 +49,9 @@ declare global {
     };
   }
 }
-type AccountSection = 'language' | 'appearance' | 'profile' | 'notifications' | 'blocked' | 'reports' | 'inquiries' | 'about';
+type AccountSection = 'language' | 'appearance' | 'profile' | 'notifications' | 'blocked' | 'reports' | 'inquiries' | 'about' | 'developers';
 const accountTitles: Record<AccountSection, string> = {
+  developers: ui("開発者向け", "For developers"),
   about: ui("このサービスについて", "About this service"),
   language: ui("言語", "Language"), appearance: ui("外観", "Appearance"), profile: ui("プロフィール", "Profile"), notifications: ui("通知", "Notifications"), blocked: ui("ブロックしたアカウント", "Blocked accounts"), reports: ui("通報の確認", "Reports"), inquiries:ui("お問い合わせの確認", "Support inbox"),
 };
@@ -434,17 +436,18 @@ export function AccountSettings({ user, operator, section, onSelect, onBack, onA
     { id: 'notifications', description: ui("メンション通知の設定", "Mention notifications"), icon: <Bell size={19} /> },
     { id: 'blocked', description: ui("ブロックしたアカウントを管理", "Manage blocked accounts"), icon: <Ban size={19} /> },
     ...(operator ? [{ id: 'reports' as const, description: ui("報告されたメッセージ", "Reported messages"), icon: <Flag size={19} /> }, {id:'inquiries' as const, description:ui("運営窓口に届いた相談", "Messages to support"), icon:<MessageCircle size={19}/>} ] : []),
+    { id: 'developers', description: ui("ソースコードとエージェントの接続方法", "Source code and agent integration"), icon: <Terminal size={19} /> },
     { id: 'about', description: ui("規約・プライバシー・お問い合わせ", "Terms, privacy and contact"), icon: <Info size={19} /> },
   ];
   return <section className={'settings-page account-settings-page' + (current === null ? ' settings-overview' : '')}>
     {current === null ? <>
       {!user && <header className="page-heading"><h1>{ui("設定", "Settings")}</h1></header>}
-      <nav className="settings-list" aria-label={ui("設定項目", "Settings menu")}>{items.filter(item => user || item.id === 'language' || item.id === 'appearance' || item.id === 'about').map((item) =>
+      <nav className="settings-list" aria-label={ui("設定項目", "Settings menu")}>{items.filter(item => user || item.id === 'language' || item.id === 'appearance' || item.id === 'about' || item.id === 'developers').map((item) =>
         <SettingsRow key={item.id} label={item.id === 'agents' ? ui("エージェント", "Agents") : accountTitles[item.id]} note={item.description} icon={item.icon} onClick={() => item.id === 'agents' ? onAgents?.() : onSelect(item.id)} />)}</nav>
     </> : <div className="account-detail">
       {!user && <><button type="button" className="settings-back" onClick={onBack}><ArrowLeft size={17} />{ui("設定", "Settings")}</button>
       <header className="page-heading"><div><h1>{accountTitles[current]}</h1></div></header></>}
-      {current === 'about' ? <SiteLinks guide rows showLanguage={false}/> : <div className={current === 'profile' ? "settings-detail-content own-profile" : "settings-detail-content"}>
+      {(current === 'about' || current === 'developers') ? <SiteLinks group={current} rows showLanguage={false}/> : <div className={current === 'profile' ? "settings-detail-content own-profile" : "settings-detail-content"}>
         {current === 'inquiries' && operator && <InquiryInbox/>}
         {current === 'language' && <LanguageField/>}
         {current === 'appearance' && <div className="select-field"><label htmlFor="appearance">{ui("このブラウザーの表示モード", "Appearance in this browser")}</label>
@@ -1203,9 +1206,10 @@ export function App() {
   else if (currentDetail) content = <Chat onRepliesRead={refreshNotices} refreshHistory={() => run(loadRoom(currentDetail.room.id))} key={currentDetail.room.id} focus={focus} user={session.user} detail={currentDetail} items={timeline.items} hasOlder={timeline.has_more} loadingOlder={loadingOlder} onOlder={() => void loadOlder()} onSend={send} onReact={react} onAgentChanged={(id, name) => agentRenamed(currentDetail.room.id, id, name)} onEdit={(message, body) => void modify(message, body)} onDelete={(message) => void modify(message)} onReport={(message) => void report(message)} onBlock={(message) => void block(message)} />;
   else if (joinCandidate && activeId === joinCandidate.id) content = <div className="welcome-panel"><RoomFaces room={joinCandidate} /><h1>{joinCandidate.name}</h1><p>{joinCandidate.host_account} · {accessLabel(joinCandidate.access_mode)}</p><button className="primary-button" onClick={() => void joinPublicRoom(joinCandidate.id)}>{ui("ルームに参加", "Join room")}</button></div>;
   else if (activeId) content = <div className="welcome-panel" role="status"><p>{error ? ui("会話を開けませんでした。", "Could not open the chat.") : ui("会話を読み込み中…", "Loading chat…")}</p></div>;
-  else content = <RoomInbox rooms={rooms} loaded={roomsLoaded} onOpen={openRoom} onCreate={createRoom} />;
+  else content = <><RoomListRefresh reload={() => loadRooms().catch(cause => setError(cause instanceof Error ? cause.message : ui("ルームを取得できませんでした。","Could not load rooms.")))}/>
+    <RoomInbox rooms={rooms} loaded={roomsLoaded} onOpen={openRoom} onCreate={createRoom} /></>;
 
-  return <ImageContext.Provider value={{ images, refresh: loadImages }}><div className={'app-shell with-primary-nav' + (inRoom ? ' reading-room' : '')}>
+  return <ImageContext.Provider value={{ images, refresh: loadImages }}><div className={'app-shell with-primary-nav' + (atInbox ? ' room-list-page' : '') + (inRoom ? ' reading-room' : '')}>
     <PrimaryNavigation current={tab === 'rooms' ? 'rooms' : undefined} onNavigate={navigatePage}/>
     <header className={tab === 'account' ? 'app-bar settings-bar' : 'app-bar'} ref={toolbarRef}><div className="app-bar-inner">
       {!atInbox && <button type="button" className="toolbar-button back-to-rooms" aria-label={tab === 'account' && history.state?.fromAppPage ? ui("戻る", "Back") : (tab === 'account' && accountSection) || (tab === 'agents' && history.state?.fromSettings) ? ui("設定に戻る", "Back to settings") : tab === 'agents' && history.state?.fromAgentList ? ui("エージェント一覧に戻る", "Back to agents") : ui("ルームに戻る", "Back to rooms")} onClick={tab === 'account' && accountSection ? closeAccountSection : tab === 'agents' && (history.state?.fromSettings || history.state?.fromAgentList) ? () => history.back() : openInbox}><ChevronLeft size={24} /></button>}
