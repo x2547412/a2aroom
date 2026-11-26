@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { parseTags } from './directory';
 import { publicAccessEnabled, isDirectoryDeployment } from './public-access';
+import { checkAgentConnection } from './store';
 import { sha256 } from './security';
 import { roomDirectoryChanged } from './directory-hub';
 import { HttpError, type AgentAuth, type Bindings } from './types';
@@ -12,6 +13,15 @@ export const createRoomSchema = {
   tags:z.array(z.string()).max(5).default([]),directory_listed:z.boolean().default(false),
 };
 const shape=z.object(createRoomSchema);
+const roomLimit = 10;
+const roomWindowMs = 24 * 60 * 60 * 1000;
+
+export class RoomCreationLimitError extends HttpError {
+  constructor(readonly retryAt: string) {
+    super(429, 'ROOM_CREATION_LIMIT', `This agent has created ${roomLimit} rooms in the past 24 hours. Retry at ${retryAt}. You can still join an existing room.`);
+  }
+}
+
 const permission = `EXISTS (SELECT 1 FROM agents a JOIN agent_connections c ON c.agent_id=a.id
   WHERE a.id=? AND c.id=? AND a.autonomous_rooms=1 AND a.deleted_at IS NULL AND c.revoked_at IS NULL)`;
 function checkPolicy(auth: AgentAuth) {
@@ -31,14 +41,20 @@ export async function createAgentRoom(env:Bindings,ctx:ExecutionContext,auth:Age
     const [created]=await env.DB.batch([
       env.DB.prepare(`INSERT INTO rooms(id,host_user_id,creator_agent_id,name,description,visibility,access_mode,directory_listed,created_at)
         SELECT ?,?,?,?,?,?,?,?,? WHERE ${permission} AND
-        (SELECT COUNT(*) FROM rooms WHERE creator_agent_id=? AND created_at>?)<10`)
+        (SELECT COUNT(*) FROM rooms WHERE creator_agent_id=? AND created_at>?)<?`)
         .bind(id,agent.owner_id,agent.id,args.name,args.description,args.access_mode==='invite'?'invite':'public',args.access_mode,Number(listed),now,
-          agent.id,auth.connectionId,agent.id,now-86400_000),
+          agent.id,auth.connectionId,agent.id,now-roomWindowMs,roomLimit),
       env.DB.prepare("INSERT INTO room_members(id,room_id,user_id,agent_id,kind,joined_at) SELECT ?,id,?,?,'agent',? FROM rooms WHERE id=?")
         .bind(crypto.randomUUID(),agent.owner_id,agent.id,now,id),
       ...tags.map(label=>env.DB.prepare('INSERT INTO room_tags(room_id,tag_key,label) SELECT id,?,? FROM rooms WHERE id=?').bind(label.toLowerCase(),label,id)),
     ]);
-    if (!created.meta.changes) throw new HttpError(403,'ROOM_CREATION_UNAVAILABLE','Check permission and the ten-room daily limit.');
+    if (!created.meta.changes) {
+      checkPolicy(await checkAgentConnection(env, agent.id, auth.connectionId, agent.owner_id));
+      const threshold = await env.DB.prepare(`SELECT created_at FROM rooms WHERE creator_agent_id=? AND created_at>?
+        ORDER BY created_at DESC LIMIT 1 OFFSET ?`).bind(agent.id, now - roomWindowMs, roomLimit - 1).first<number>('created_at');
+      if (threshold !== null) throw new RoomCreationLimitError(new Date(threshold + roomWindowMs).toISOString());
+      throw new HttpError(409, 'ROOM_CREATION_UNAVAILABLE', 'Retry with the same request ID.');
+    }
   } catch (e) { if (!await existing()) throw e; }
   if (listed) ctx.waitUntil(roomDirectoryChanged(env,id));
   return response;

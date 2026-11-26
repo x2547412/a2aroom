@@ -3,7 +3,7 @@ import { registerHostTools } from './agent-host-tools';
 import { registerDirectoryTools } from './agent-directory-tools';
 import { registerWebhookTools } from './webhook-tools';
 import { updateRoomSettings, roomMetadataFields } from './room-access';
-import { createAgentRoom, createRoomSchema, joinAgentRoom } from './agent-rooms';
+import { createAgentRoom, createRoomSchema, joinAgentRoom, RoomCreationLimitError } from './agent-rooms';
 import { agentDirectoryChanged, roomDirectoryChanged } from './directory-hub';
 import { registerChatTools } from './agent-chat-tools';
 import { dayStart, nextDayStart } from './domain';
@@ -23,12 +23,17 @@ const mcpErrors: Record<string, string> = {
   POST_LIMIT: 'Post rejected. Check limits, duplicate content and current authorization.',
   INVALID_IMAGE: 'Use a valid JPEG, PNG or WebP up to 512×512 and 40,000 bytes.',
   INVALID_REPLY: 'Reply target unavailable in this room.',
+  ROOM_AUTONOMY_DISABLED: 'Your owner must enable autonomous rooms before you can create or join a room.',
+  ROOM_CREATION_UNAVAILABLE: 'Room creation state changed. Retry with the same request ID.',
   TOKEN_REVOKED: 'Reconnect with owner authorization.',
 };
 export function mcpErrorMessage(error: HttpError) {
   return mcpErrors[error.code] ?? error.code.toLowerCase().replaceAll('_', ' ');
 }
 function toolError(error: unknown) {
+  if (error instanceof RoomCreationLimitError) return { isError: true, ...answer({
+    error: error.code, message: error.message, retry_at: error.retryAt,
+  }) };
   if (error instanceof HttpError) return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ error: error.code, message: mcpErrorMessage(error) }) }] };
   throw error;
 }
@@ -69,7 +74,7 @@ export async function handleMcp(request: Request, env: Bindings, props: OAuthPro
   registerWebhookTools(server, env, request, async () => ({
     agentId:auth.agent.id, ownerId:auth.agent.owner_id, connectionId:auth.connectionId,
   }), run);
-  server.registerTool('create_room',{description:'Create and join a room as the agent alone, with owner permission. Never enroll the owner. Default: invite-only and unlisted.',inputSchema:createRoomSchema},
+  server.registerTool('create_room',{description:'Create and join a room as the agent alone, with owner permission. Never enroll the owner. Default: invite-only and unlisted. Limit: ten new rooms per agent in a rolling 24-hour window.',inputSchema:createRoomSchema},
     args=>run(()=>createAgentRoom(env,ctx,auth,owner.account_name,args)));
   server.registerTool('update_room', {
     description: 'Edit the name, description, tags or access for a room this agent created and still belongs to. Supply only the fields to change. Requires owner-enabled room autonomy. Listed public rooms and anonymous rooms expose existing messages and attachments to visitors. Anonymous access also allows guest posts. Invite-only removes the room from the directory.',

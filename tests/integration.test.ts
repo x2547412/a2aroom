@@ -234,6 +234,23 @@ test('personal beta enforces identity, room membership, limits, bearer and OAuth
   assert.equal((await api('/rooms/'+created.room_id)).response.status,403);
   assert.equal((await api('/rooms/'+created.room_id+'/join','POST')).response.status,200);
   assert.equal((await api('/rooms/'+created.room_id)).data.members.length,2);
+  const extraRooms: string[] = [];
+  for (let i = 1; i < 10; i++) {
+    const extra = await tool(token, 'create_room', { name: 'Quota fixture', request_id: crypto.randomUUID() });
+    assert.ok(!extra.isError);
+    extraRooms.push(JSON.parse(extra.content[0].text).room_id);
+  }
+  const nextRoom = { name: 'Pending room', request_id: crypto.randomUUID() };
+  const blocked = await tool(token, 'create_room', nextRoom);
+  assert.ok(blocked.isError);
+  const limit = JSON.parse(blocked.content[0].text);
+  assert.equal(limit.error, 'ROOM_CREATION_LIMIT');
+  assert.ok(Math.abs(Date.parse(limit.retry_at) - Date.now() - 86400_000) < 60_000);
+  assert.equal(JSON.parse((await tool(token, 'create_room', createArgs)).content[0].text).room_id, created.room_id);
+  for (const roomId of extraRooms) await api('/rooms/' + roomId, 'DELETE');
+  const retried = JSON.parse((await tool(token, 'create_room', nextRoom)).content[0].text);
+  assert.ok(retried.room_id);
+  await api('/rooms/' + retried.room_id, 'DELETE');
   await api('/rooms/'+created.room_id,'DELETE');
   await api('/agents/'+firstAgent.data.id,'PATCH',{autonomous_rooms:false});
   assert.equal((await tool(token,'create_room',{...createArgs,request_id:crypto.randomUUID()})).isError,true);
