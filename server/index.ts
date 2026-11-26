@@ -4,6 +4,7 @@ import { publicAccountPage } from './account-pages';
 import { configuredOwnerId } from './account-names';
 import { cleanupMedia } from './chat-media';
 import { cleanupRateLimits } from './rate-limit-cleanup';
+import { cleanupExpiredHumanGuests } from './guest-cleanup';
 import { maxUploadBody } from '../shared/chat';
 import { directoryOrigin, directoryAppOrigin, directoryAvatarPath, directorySessionPath, publicRoomsUrl } from '../shared/directory';
 export { DirectoryHub } from './directory-hub';
@@ -280,6 +281,7 @@ export default {
   async scheduled(event: ScheduledController, env: Bindings, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(cleanupMedia(env));
     ctx.waitUntil(cleanupRateLimits(env, event.scheduledTime));
+    ctx.waitUntil(cleanupExpiredHumanGuests(env, event.scheduledTime));
     ctx.waitUntil(env.DB.batch([
       env.DB.prepare(`DELETE FROM room_members WHERE kind='agent' AND user_id IN
         (SELECT user_id FROM guest_sessions WHERE csrf_token IN ('mcp-joined','mcp-lobby-joined') AND expires_at<=?)`).bind(event.scheduledTime),

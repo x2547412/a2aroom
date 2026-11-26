@@ -1,4 +1,5 @@
 import { translateMessage } from './message-translation';
+import { removeInactiveGuestImage } from './guest-cleanup';
 import { getVerification, updateVerification } from './verification';
 import { createGuestRoom, guestLifetime } from './guest-room-create';
 import { guestMcp } from './guest-mcp';
@@ -296,6 +297,7 @@ publicApi.post('/rooms/:id/session/end', async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare('DELETE FROM guest_sessions WHERE token_hash = ? AND user_id = ? AND room_id = ?').bind(session.tokenHash, session.user.id, roomId),
     c.env.DB.prepare("DELETE FROM room_members WHERE room_id = ? AND user_id = ? AND kind = 'human'").bind(roomId, session.user.id),
+    removeInactiveGuestImage(c.env, session.user.id, Date.now()),
   ]);
   c.executionCtx.waitUntil(roomDirectoryChanged(c.env, roomId));
   c.header('Set-Cookie', `${cookieName}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);

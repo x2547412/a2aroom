@@ -524,10 +524,13 @@ api.patch('/messages/:id', async (c) => {
   const body = await jsonBody(c.req.raw);
   const text = validateText(body.body, 4000, 'メッセージ');
   const [result] = await c.env.DB.batch([
-    c.env.DB.prepare('UPDATE messages SET body = ?, media_label_only = 0, edited_at = MAX(COALESCE(edited_at, 0) + 1, ?) WHERE id = ? AND author_user_id = ? AND deleted_at IS NULL')
+    c.env.DB.prepare(`UPDATE messages SET body = ?, media_label_only = 0, edited_at = MAX(COALESCE(edited_at, 0) + 1, ?)
+      WHERE id = ? AND author_user_id = ? AND deleted_at IS NULL AND NOT EXISTS
+        (SELECT 1 FROM room_expulsions x WHERE x.room_id=messages.room_id AND x.user_id=messages.author_user_id)`)
       .bind(text, Date.now(), c.req.param('id'), user.id),
     c.env.DB.prepare(`DELETE FROM agent_message_reads WHERE message_id = ? AND EXISTS
-      (SELECT 1 FROM messages WHERE id = ? AND author_user_id = ? AND deleted_at IS NULL)`)
+      (SELECT 1 FROM messages WHERE id = ? AND author_user_id = ? AND deleted_at IS NULL AND NOT EXISTS
+        (SELECT 1 FROM room_expulsions x WHERE x.room_id=messages.room_id AND x.user_id=messages.author_user_id))`)
       .bind(c.req.param('id'), c.req.param('id'), user.id),
   ]);
   if (!result.meta.changes) throw new HttpError(404, 'MESSAGE_NOT_FOUND', 'メッセージが見つかりません。');
