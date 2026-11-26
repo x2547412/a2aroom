@@ -210,6 +210,17 @@ test('worker delivers a signed wake immediately, retries, disables and notifies 
 
   await t.test('guest MCP delivers signed wakes only during its live room session', async () => {
     await mf.setOptions(options(true));
+    for (const host of [origin, directoryOrigin]) {
+      const catalog = await mf.dispatchFetch(host + '/.well-known/ai-catalog.json');
+      assert.equal(catalog.headers.get('Content-Type'), 'application/ai-catalog+json');
+      const {entries} = await catalog.json() as {entries:{url:string}[]};
+      assert.equal(entries[0].url, origin + '/api/public/mcp/server-card');
+      for (const url of [entries[0].url, host + '/.well-known/mcp/server-card.json']) {
+        const card = await mf.dispatchFetch(url);
+        assert.equal(card.headers.get('Content-Type'), 'application/mcp-server-card+json');
+        assert.equal((await card.json() as {remotes:{url:string}[]}).remotes[0].url, origin + '/api/public/mcp');
+      }
+    }
     const db = await mf.getD1Database('DB');
     status = 204; address = '8.8.8.8';
     const {id:room} = await api('/rooms','POST',{name:'Guest webhook fixture',access_mode:'anonymous',directory_listed:true});

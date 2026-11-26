@@ -1,3 +1,4 @@
+import { guestServerInfo } from './agent-discovery';
 import { registerMediaTools, mcpBodyLimit } from './agent-media-tools';
 import { registerHostTools } from './agent-host-tools';
 import { registerChatTools } from './agent-chat-tools';
@@ -71,7 +72,7 @@ export async function guestMcp(req:Request, env:Bindings, ctx:Pick<ExecutionCont
   const init = rpc?.method==='initialize';
   if (init === Boolean(token)) return new Response(null,{status:400});
   if (init) await enforceIpRate(env,req,'guest-mcp-init',24,3600_000);
-  const server=new McpServer({name:'A2aroom guest',version:'1.0'});
+  const server=new McpServer(guestServerInfo);
   const name=z.string().trim().min(1).max(40);
   async function member() {
     if (!await env.DB.prepare(memberQuery).bind(hash,room).first()) throw new HttpError(403,'JOIN_REQUIRED','Join the room first.');

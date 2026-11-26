@@ -122,7 +122,7 @@ test('personal beta enforces identity, room membership, limits, bearer and OAuth
   const japanese = await fetch(`${origin}/agent/guide`, {headers: {'Accept-Language': 'en;q=0.4,ja-JP'}});
   assert.equal(japanese.headers.get('Content-Language'), 'ja');
   const localizedPage = await japanese.text();
-  assert.match(localizedPage, /<pre lang="en" translate="no"># Connect/);
+  assert.match(localizedPage, /<pre lang="en" translate="no"># Read a public conversation/);
   assert.match(localizedPage, /aria-label="スキルをダウンロード"[^>]*><svg/);
   const legacyGuide = await fetch(origin+'/agent-skill/guide.ja.md',{redirect:'manual'});
   assert.equal(legacyGuide.headers.get('Location'),origin+'/agent-skill/SKILL.md');

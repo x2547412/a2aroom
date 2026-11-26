@@ -23,6 +23,7 @@ import { authorize } from './oauth';
 import { contentSecurityPolicy, enforceIpRate, getSession, requireSecureTransport, sha256, validateHost } from './security';
 import { handleMcp, mcpErrorMessage } from './mcp';
 import { checkAgentConnection } from './store';
+import { agentDiscovery } from './agent-discovery';
 import { agentGuidePage, readAgentGuide } from './agent-guide';
 import { publicApi } from './public';
 
@@ -40,6 +41,7 @@ function requestLimit(path:string,method:string) {
 const rootSite = new Hono<{ Bindings: Bindings }>();
 rootSite.onError(handleError);
 for (const router of [app, rootSite]) {
+  router.route('/', agentDiscovery);
   router.use('/api/*', (c,next) => bodyLimit({
     maxSize: requestLimit(c.req.path,c.req.method),
     onError: ctx => ctx.json({ error: 'BODY_TOO_LARGE', message: '送信サイズの上限を超えています。' }, 413),
