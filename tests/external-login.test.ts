@@ -19,7 +19,7 @@ test('External providers register, link and authenticate users while reserving t
   const mf = new Miniflare(convertV4MiniflareOptions({ modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2026-11-19',
     compatibilityFlags:['nodejs_compat','global_fetch_strictly_public'],d1Databases:['DB'],kvNamespaces:['OAUTH_KV'],
     bindings:{PUBLIC_ORIGIN:origin,DIRECTORY_ORIGIN:"https://a2aroom.com",ENVIRONMENT:'production',OWNER_ACCOUNT:'examplehost',PRIVATE_BETA:'false',PUBLIC_ACCESS:'true',OWNER_GOOGLE_EMAIL_HASH:createHash('sha256').update('operator@example.com').digest('hex'),
-      GOOGLE_CLIENT_ID:'google-fixture',GOOGLE_CLIENT_SECRET:'fixture',CHATGPT_CLIENT_ID:'chatgpt-fixture',CHATGPT_CLIENT_SECRET:'chat-secret',TIKTOK_CLIENT_KEY:'tik-key',TIKTOK_CLIENT_SECRET:'tik-secret'},
+      GOOGLE_CLIENT_ID:'google-fixture',GOOGLE_CLIENT_SECRET:'fixture',CHATGPT_CLIENT_ID:'chatgpt:fixture+',CHATGPT_CLIENT_SECRET:'test +:%&あ',TIKTOK_CLIENT_KEY:'tik-key',TIKTOK_CLIENT_SECRET:'tik-secret'},
     outboundService:async req => {
       if (req.method === 'GET') return Response.json({keys:[key]});
       const body = new URLSearchParams(await req.text());
@@ -30,7 +30,7 @@ test('External providers register, link and authenticate users while reserving t
         return Response.json({open_id:subject,access_token:'fixture-tiktok-access'});
       }
       if (new URL(req.url).hostname === 'auth.openai.com')
-        assert.equal(req.headers.get('Authorization'),'Basic '+btoa('chatgpt-fixture:chat-secret'));
+        assert.equal(req.headers.get('Authorization'),'Basic '+btoa('chatgpt%3Afixture%2B:test+%2B%3A%25%26%E3%81%82'));
       assert.equal(createHash('sha256').update(body.get('code_verifier')!).digest('base64url'),auth.searchParams.get('code_challenge'));
       const issuer = auth.origin;
       const jwt = await new SignJWT({ email, email_verified:verified, nonce:badNonce?'wrong':auth.searchParams.get('nonce') }).setProtectedHeader({alg:'RS256',kid:'fixture'})

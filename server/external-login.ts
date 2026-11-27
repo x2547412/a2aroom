@@ -171,8 +171,13 @@ externalLogin.get('/:provider/callback', async c => {
     form.delete('client_id');
     form.set('client_key',config.id);
   }
-  if (p === 'chatgpt') headers.set('Authorization','Basic '+btoa(config.id+':'+config.secret));
-  else form.set('client_secret',config.secret);
+  if (p === 'chatgpt') {
+    const encodeCredential = (value: string) => new URLSearchParams({value}).toString().slice('value='.length);
+    const basic = btoa(encodeCredential(config.id) + ':' + encodeCredential(config.secret));
+    headers.set('Authorization', 'Basic ' + basic);
+  } else {
+    form.set('client_secret',config.secret);
+  }
   let subject: string;
   let email: string | null = null;
   try {

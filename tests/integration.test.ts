@@ -1395,7 +1395,7 @@ test('room media, stickers, ranges, reactions and deletion respect room visibili
   const m = history.messages[1];
   assert.equal(m.reply_to, parent);
   assert.equal(m.reply_excerpt, '添付をお願いします');
-  assert.equal(m.reply_author, 'takatoshi');
+  assert.equal(m.reply_author, 'examplehost');
   assert.equal(m.media_label_only, 1);
   assert.deepEqual(m.attachments.map(a => a.kind), ['photo', 'video', 'file']);
   const [photo, video, doc] = m.attachments.map(f => room + '/attachments/' + f.id);

@@ -41,7 +41,8 @@ export function ExternalLogin({settings = false}: {settings?: boolean}) {
   return <div className="external-login">
     {settings && <h3>{ui("ログイン方法", "Sign-in methods")}</h3>}
     {methods.map(({id,linked}) => settings && linked ? <p key={id}>{labels[id]}{ui("と連携済み", " linked")}</p> :
-      <button key={id} type="button" className={id === 'google' ? 'google-login full' : 'outline-button full'} disabled={busy} onClick={() => void start(id)}>
+      <button key={id} type="button" className={id === 'google' ? 'google-login full' : 'outline-button full'} data-oai-siwc-button={id === 'chatgpt' ? '' : undefined}
+        disabled={busy} onClick={() => void start(id)}>
         {id === 'google' && <img src="/icons/google-g.png" alt="" />}{settings ? ui(labels[id] + "と連携", "Link " + labels[id]) : ui(labels[id] + "で続ける", "Continue with " + labels[id])}
       </button>)}
     {error && <p role="alert" className="form-error">{error}</p>}
