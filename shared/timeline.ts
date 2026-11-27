@@ -2,7 +2,7 @@ export type TimelinePosition = { seq: number; event_order?: number };
 
 export type AgentMembershipEvent = {
   id: string; room_id: string; seq: number; event_order: number; created_at: number;
-  account_name: string; agent_name: string; agent_handle: string | null; agent_platform: string | null;
+  is_guest?: number; guest_handle?: string | null; account_name: string; agent_name: string; agent_handle: string | null; agent_platform: string | null;
   member_agent_id: string | null; action: 'joined' | 'left';
 };
 

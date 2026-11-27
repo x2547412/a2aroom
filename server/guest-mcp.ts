@@ -1,6 +1,6 @@
 import { guestServerInfo } from './agent-discovery';
 import { registerMediaTools, mcpBodyLimit } from './agent-media-tools';
-import { namedGuestMcp, registerHandleClaim } from './guest-agent-handles';
+import { namedGuestMcp, registerHandleClaim, sessionAgentIdentity } from './guest-agent-handles';
 import { registerHostTools } from './agent-host-tools';
 import { registerChatTools } from './agent-chat-tools';
 import { registerWebhookTools } from './webhook-tools';
@@ -18,13 +18,14 @@ import { signalMessage } from './wakes';
 import { roomMetadataFields, updateRoomSettings } from './room-access';
 import { createGuestRoom, guestLifetime as ttl } from './guest-room-create';
 const imageSchema = z.object({mime:z.enum(['image/png','image/jpeg','image/webp']), data:z.string().max(54000)});
-const sessionQuery = `SELECT s.user_id FROM guest_sessions s JOIN rooms r ON r.id=s.room_id
+const sessionFrom = `FROM guest_sessions s JOIN rooms r ON r.id=s.room_id
   WHERE s.token_hash=? AND s.room_id=? AND s.expires_at>unixepoch('subsec')*1000
   AND r.visibility='public' AND r.access_mode='anonymous'`;
+const sessionQuery = `SELECT s.user_id ${sessionFrom}`;
 const memberQuery = `${sessionQuery} AND EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id=s.room_id
   AND rm.kind='agent' AND rm.agent_id=s.user_id AND rm.user_id=s.user_id)`;
 
-async function result(operation: () => Promise<unknown>) {
+async function toolResult(operation: () => Promise<unknown>) {
   try { return {content:[{type:'text' as const,text:JSON.stringify(await operation())}]}; }
   catch (e) {
     if (!(e instanceof HttpError)) throw e;
@@ -37,20 +38,25 @@ export async function guestMcp(req:Request, env:Bindings, ctx:Pick<ExecutionCont
   const token = req.headers.get('Mcp-Session-Id');
   if (!['POST','DELETE'].includes(req.method)) return new Response(null,{status:405,headers:{Allow:'POST, DELETE'}});
   await enforceIpRate(env,req,'guest-mcp',1200,3600_000);
-  if (req.headers.has('Authorization')) return namedGuestMcp(req,env,ctx,targetRoom,result);
+  if (req.headers.has('Authorization')) return namedGuestMcp(req,env,ctx,targetRoom,toolResult);
   // A separate hash namespace prevents mixing browser cookies with MCP sessions.
   if (token !== null && !/^[A-Za-z0-9_-]{43}$/.test(token)) return new Response(null,{status:404});
   const sessionId = token ?? randomToken();
   const hash = await sha256('guest-mcp:'+sessionId);
   const lobby = targetRoom === null;
-  const pending = lobby && token ? await env.DB.prepare('SELECT room_id,user_id FROM guest_room_requests WHERE token_hash=? AND expires_at>?')
-    .bind(hash,Date.now()).first<{room_id:string;user_id:string}>() : null;
+  const pending = lobby && token ? await env.DB.prepare(`SELECT room_id,user_id,
+    EXISTS (SELECT 1 FROM guest_agent_handles h WHERE h.claim_session_hash=q.token_hash) AS claimed
+    FROM guest_room_requests q WHERE token_hash=? AND expires_at>?`)
+    .bind(hash,Date.now()).first<{room_id:string;user_id:string;claimed:number}>() : null;
   const assigned = lobby && token && !pending ? await env.DB.prepare(`SELECT s.room_id, (r.creator_agent_id IS s.user_id AND r.host_user_id=s.user_id) AS created FROM guest_sessions s JOIN rooms r ON r.id=s.room_id
     WHERE s.token_hash=? AND (s.csrf_token='mcp-lobby-joined' OR (r.creator_agent_id=s.user_id AND r.host_user_id=s.user_id))`).bind(hash).first<{room_id:string;created:number}>() : null;
   const room = targetRoom ?? pending?.room_id ?? assigned?.room_id ?? crypto.randomUUID();
-  const session = token && await env.DB.prepare(sessionQuery).bind(hash,room).first<{user_id:string}>();
+  const session = token && await env.DB.prepare(`SELECT s.user_id,s.csrf_token,
+    EXISTS (SELECT 1 FROM guest_agent_handles h WHERE h.agent_id=s.user_id) AS has_handle
+    ${sessionFrom}`).bind(hash,room).first<{user_id:string;csrf_token:string;has_handle:number}>();
   if (token && !session && !pending) return new Response(null,{status:404});
   const id = session ? session.user_id : pending?.user_id ?? crypto.randomUUID();
+  const identity = (joinedRoom: string) => sessionAgentIdentity(env,joinedRoom,id,hash,sessionId);
   async function leave() {
     if (pending) {
       await env.DB.prepare('DELETE FROM guest_room_requests WHERE token_hash=?').bind(hash).run();
@@ -58,7 +64,6 @@ export async function guestMcp(req:Request, env:Bindings, ctx:Pick<ExecutionCont
     }
     await env.DB.batch([
       env.DB.prepare('DELETE FROM agent_webhooks WHERE agent_id=?').bind(id),
-      env.DB.prepare("DELETE FROM room_members WHERE kind='agent' AND agent_id=? AND room_id=?").bind(id,room),
       env.DB.prepare('DELETE FROM guest_sessions WHERE token_hash=? AND room_id=?').bind(hash,room),
     ]);
     ctx.waitUntil(roomDirectoryChanged(env,room));
@@ -94,6 +99,16 @@ export async function guestMcp(req:Request, env:Bindings, ctx:Pick<ExecutionCont
     await enforceAgentReadRate(env,auth.agent.id);
     return {auth,room,guestHash:hash};
   }
+  const upgrade = session && !session.has_handle && ['mcp-joined','mcp-lobby-joined'].includes(session.csrf_token) && rpc.method === 'tools/call'
+    ? await identity(room) : null;
+  async function result(operation: () => Promise<unknown>) {
+    const reply = await toolResult(operation);
+    if (!upgrade) return reply;
+    return {...reply, _meta:{'a2aroom/identity':{handle:upgrade.handle, instruction:'Call get_identity and save your private reconnect key.'}}};
+  }
+  function requireBootstrapSession() {
+    if (pending && pending.claimed) throw new HttpError(409,'USE_AGENT_KEY','Reconnect with the key returned by claim_handle.');
+  }
   registerChatTools(server,env,ctx,req,z.string().min(1).optional(),resolveRoom,result);
   registerMediaTools(server,env,ctx,req,z.string().min(1).optional(),resolveRoom,result);
   registerHostTools(server,env,ctx,z.string().min(1).optional(),resolveRoom,result);
@@ -101,12 +116,16 @@ export async function guestMcp(req:Request, env:Bindings, ctx:Pick<ExecutionCont
     await member();
     return {agentId:id,ownerId:id,connectionId:id,guest:{room,hash}};
   }, result);
-  if (lobby) registerHandleClaim(server,env,req,hash,result);
+  server.registerTool('get_identity', {
+    description:'Retrieve your public handle and private reconnect key from this active joined session. Save the key privately. Never include it in posts or logs.',
+  }, () => result(() => identity(room)));
+  if (pending) registerHandleClaim(server,env,req,hash,id,result);
   if (lobby) registerDirectoryTools(server,env,id,result,id,req);
   if (lobby) server.registerTool('create_room',{
     description:'Create one anonymous public room per session and join as its only initial member. Retry returns the same room. Use a new session for another room.',
     inputSchema:{name:z.string().trim().min(1).max(80),display_name:name,description:z.string().max(500).optional(),tags:z.array(z.string()).max(5).optional(),directory_listed:z.boolean().default(true)}
   },args=>result(async()=>{
+    requireBootstrapSession();
     if (session && !assigned?.created) throw new HttpError(409,'SESSION_BOUND','Use a new session to create another room.');
     if (!session) {
       if (!pending) throw new HttpError(403,'SESSION_REQUIRED','Initialize first.');
@@ -115,7 +134,7 @@ export async function guestMcp(req:Request, env:Bindings, ctx:Pick<ExecutionCont
       catch (e) { if (!await env.DB.prepare(memberQuery).bind(hash,room).first()) throw e; }
       ctx.waitUntil(roomDirectoryChanged(env,room));
     }
-    return {room_id:room,agent_id:id,url:env.PUBLIC_ORIGIN+'/rooms/'+room};
+    return {room_id:room,...await identity(room),url:env.PUBLIC_ORIGIN+'/rooms/'+room};
   }));
   server.registerTool('update_room',{
     description:'Edit the name, description or tags of the room created by this guest session. Supply only the fields to change.',
@@ -128,13 +147,14 @@ export async function guestMcp(req:Request, env:Bindings, ctx:Pick<ExecutionCont
     return updateRoomSettings(env,ctx,current,patch,{agent:auth,guestHash:hash});
   }));
   server.registerTool('join_room',{
-    description:lobby ? 'Join a listed anonymous room by room_id. Each session can join one room. Retry with the same room_id.' : 'Join this anonymous room as a guest AI.',
+    description:lobby ? 'Join a listed anonymous room by room_id. Each session can join one room. Save the returned private reconnect key. Retry with the same room_id.' : 'Join this room and save the returned private reconnect key.',
     inputSchema:{name,image:imageSchema.optional(),...(lobby ? {room_id:z.string().min(1).max(128)} : {})},
   },args=>result(async()=>{
+    requireBootstrapSession();
     const selected = lobby ? args.room_id! : room;
     if (!pending && selected !== room) throw new HttpError(409,'SESSION_BOUND','Use a new session for another room.');
     const membership = () => env.DB.prepare(memberQuery).bind(hash,selected).first();
-    if (await membership()) return {room_id:selected,agent_id:id};
+    if (await membership()) return {room_id:selected,...await identity(selected)};
     await enforceIpRate(env,req,'guest-mcp-join',12,3600_000);
     const now=Date.now();
     // Claim the lobby request and enroll in one D1 transaction. Competing joins can only claim it once.
@@ -158,7 +178,7 @@ export async function guestMcp(req:Request, env:Bindings, ctx:Pick<ExecutionCont
     ]);
     if (!await membership()) throw new HttpError(403,'ROOM_UNAVAILABLE','Choose a room that allows guest agents.');
     ctx.waitUntil(roomDirectoryChanged(env,selected));
-    return {room_id:selected,agent_id:id};
+    return {room_id:selected,...await identity(selected)};
   }));
   server.registerTool('set_profile',{description:'Update your guest display name, public bio or avatar. A null image removes it.',inputSchema:{name:name.optional(),profile_text:z.string().max(2000).optional(),image:imageSchema.nullable().optional()}},args=>result(async()=>{
     await member(); await enforceIpRate(env,req,'guest-mcp-profile',30,3600_000);

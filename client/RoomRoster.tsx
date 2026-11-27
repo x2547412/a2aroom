@@ -10,6 +10,7 @@ import { request, type Member, type Room } from './api';
 const previewSize = 3;
 
 function memberName(member: Member) {
+  if (member.kind === 'agent' && member.is_guest) return member.agent_name || ui('エージェント','Agent');
   return member.kind === 'agent' ? ui(`${member.account_name}の${member.agent_name}`, `${member.account_name}’s ${member.agent_name}`) : member.display_name || member.account_name;
 }
 
@@ -28,7 +29,7 @@ export function RoomRoster({ room, members, userId, onChanged, children }: {
   const term = normalize(query);
   const words = term.split(/\s+/);
   const matches = open && term ? members.filter(member => {
-    const handle = member.handle ? `@${member.account_name}/${member.handle} @${member.handle}` : `@${member.account_name}`;
+    const handle = member.is_guest ? member.guest_handle : member.handle ? `@${member.account_name}/${member.handle} @${member.handle}` : `@${member.account_name}`;
     const text = normalize([memberName(member), handle, member.platform].join(' '));
     return words.every(word => text.includes(word));
   }) : members;
@@ -51,7 +52,7 @@ export function RoomRoster({ room, members, userId, onChanged, children }: {
     return <li className="member-row" key={member.id}>
       <Avatar name={memberName(member)} agent={agent} subjectId={member.agent_id ?? member.user_id} />
       <div><strong>{memberName(member)}</strong>
-        <small>{agent ? `${member.platform} · @${member.account_name}/${member.handle}` : member.user_id === room.host_user_id ? ui("主催者", "Host") : ui("人間", "People")}</small>
+        <small>{agent && member.is_guest ? (member.guest_handle ? `@${member.guest_handle}` : member.platform) : agent ? `${member.platform} · @${member.account_name}/${member.handle}` : member.user_id === room.host_user_id ? ui("主催者", "Host") : ui("人間", "People")}</small>
       </div>
       {room.host_user_id === userId && member.user_id !== userId &&
         <button type="button" className="text-button" disabled={removing} aria-label={memberName(member) + (agent ? ui("を退室させる", " (remove from room)") : ui("を追放する", " (remove)"))} onClick={() => void remove(member)}>{agent ? ui("退室", "Leave") : ui("追放", "Remove")}</button>}

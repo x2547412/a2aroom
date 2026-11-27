@@ -1190,7 +1190,7 @@ test('development public modes isolate anonymous visitors and preserve private r
     await ai.connect(transport);
     try {
       assert.ok(transport.sessionId);
-      assert.deepEqual((await ai.listTools()).tools.map(t=>t.name).sort(),['create_room_invite', 'delete_message', 'delete_room', 'edit_message', 'get_member_profile', 'get_my_webhook', 'get_reply_status', 'get_room', 'get_room_members', 'get_verification_note', 'join_room', 'leave_room', 'post_media_message', 'post_message', 'read_attachment', 'read_messages', 'read_room_timeline', 'remove_my_webhook', 'remove_room_member', 'report_message', 'revoke_room_invites', 'search_messages', 'set_my_webhook', 'set_profile', 'set_reaction', 'set_reply_status', 'update_room', 'update_verification_note', 'upload_attachment_chunk']);
+      assert.deepEqual((await ai.listTools()).tools.map(t=>t.name).sort(),['create_room_invite', 'delete_message', 'delete_room', 'edit_message', 'get_identity', 'get_member_profile', 'get_my_webhook', 'get_reply_status', 'get_room', 'get_room_members', 'get_verification_note', 'join_room', 'leave_room', 'post_media_message', 'post_message', 'read_attachment', 'read_messages', 'read_room_timeline', 'remove_my_webhook', 'remove_room_member', 'report_message', 'revoke_room_invites', 'search_messages', 'set_my_webhook', 'set_profile', 'set_reaction', 'set_reply_status', 'update_room', 'update_verification_note', 'upload_attachment_chunk']);
       assert.equal((await ai.callTool({name:'read_messages',arguments:{}})).isError,true);
       const joined=await ai.callTool({name:'join_room',arguments:{name:'Visitor AI',image}});
       assert.ok(!joined.isError,JSON.stringify(joined.content));
@@ -1232,6 +1232,49 @@ test('development public modes isolate anonymous visitors and preserve private r
       } finally {await departing.close();}
     } finally {await ai.close();}
   });
+  await t.test('an active legacy MCP session keeps its history when upgraded and after reconnect', async t => {
+    const room = (await owner('/rooms','POST',{name:'Identity migration',access_mode:'anonymous',directory_listed:true})).data.id;
+    const lobby = new URL('/api/public/mcp',origin);
+    async function connect(key?:string) {
+      const ai = new Client({name:'migration-fixture',version:'1'});
+      await ai.connect(new StreamableHTTPClientTransport(lobby,{requestInit:{headers:{
+        'CF-Connecting-IP':'192.0.2.90', ...(key ? {Authorization:'Bearer '+key} : {}),
+      }}}));
+      t.after(() => ai.close());
+      return ai;
+    }
+    const call = async (ai:Client,name:string,args:Record<string,unknown>={}) => {
+      const result = await ai.callTool({name,arguments:args});
+      assert.ok(!result.isError,name);
+      return JSON.parse((result.content as {text:string}[])[0].text);
+    };
+    const original = await connect();
+    const joined = await call(original,'join_room',{room_id:room,name:'Returning agent'});
+    assert.match(joined.handle,/^agent-[a-f0-9]+$/);
+    assert.match(joined.key,/^agk_[A-Za-z0-9_-]{43}$/);
+    const message = await call(original,'post_message',{body:'Written before migration'});
+    // Restore the database shape of an enrolled agent from before automatic handles.
+    assert.match(joined.agent_id,/^[0-9a-f-]{36}$/);
+    const seed = spawnSync(wrangler,['d1','execute','a2aroom-test','--local','--persist-to',fixture.state,
+      '--config',fixture.configPath,'--command',`DELETE FROM guest_agent_handles WHERE agent_id='${joined.agent_id}'`],{encoding:'utf8'});
+    assert.equal(seed.status,0,seed.stderr);
+    await call(original,'read_messages');
+    const profile = (await client()('/public/rooms/'+room+'/profiles/agent/'+joined.agent_id)).data;
+    const identity = await call(original,'get_identity');
+    assert.equal(profile.guest_handle,identity.handle);
+    assert.equal(profile.name,'Returning agent');
+    assert.equal(identity.agent_id,joined.agent_id);
+    assert.deepEqual(await call(original,'get_identity'),identity);
+    const returned = await connect(identity.key);
+    assert.equal((await call(returned,'join_room',{room_id:room})).agent_id,joined.agent_id);
+    await call(original,'leave_room');
+    const {messages} = await call(returned,'read_messages',{room_id:room});
+    assert.ok(messages.some((m:{id:string;guest_handle:string;author_agent_id:string}) =>
+      m.id===message.id && m.author_agent_id===joined.agent_id && m.guest_handle===identity.handle));
+    assert.ok((await returned.callTool({name:'join_room',arguments:{room_id:registered.data.id}})).isError);
+    await call(returned,'leave_room',{room_id:room});
+    assert.equal((await client()('/public/rooms/'+room+'/profiles/agent/'+joined.agent_id)).response.status,404);
+  });
   await t.test('named guest identity survives reconnects and only participates in guest rooms', async t => {
     const lobby = new URL('/api/public/mcp', origin);
     const connect = async (endpoint: URL, key?:string) => {
@@ -1256,6 +1299,7 @@ test('development public modes isolate anonymous visitors and preserve private r
     assert.equal(identity.handle,'test-scout');
     assert.match(identity.key,/^agk_[A-Za-z0-9_-]{43}$/);
     assert.ok((await call([anon,second][winner],'claim_handle',{handle:'another-scout'})).isError);
+    assert.ok((await call([anon,second][winner],'create_room',{name:'Extra room',display_name:'Duplicate'})).isError);
     const rpcBody=JSON.stringify({id:1,jsonrpc:'2.0',method:'tools/list'});
     assert.equal((await fetch(origin+'/mcp',{method:'POST',headers:{...callHeaders,Authorization:'Bearer '+identity.key},body:rpcBody})).status,401);
     assert.equal((await fetch(lobby,{method:'POST',headers:{...callHeaders,Authorization:'Bearer invalid'},body:rpcBody})).status,401);

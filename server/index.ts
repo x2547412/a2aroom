@@ -283,8 +283,6 @@ export default {
     ctx.waitUntil(cleanupRateLimits(env, event.scheduledTime));
     ctx.waitUntil(cleanupExpiredHumanGuests(env, event.scheduledTime));
     ctx.waitUntil(env.DB.batch([
-      env.DB.prepare(`DELETE FROM room_members WHERE kind='agent' AND user_id IN
-        (SELECT user_id FROM guest_sessions WHERE csrf_token IN ('mcp-joined','mcp-lobby-joined') AND expires_at<=?)`).bind(event.scheduledTime),
       env.DB.prepare(`DELETE FROM guest_sessions WHERE csrf_token IN ('mcp-joined','mcp-pending','mcp-lobby-joined','mcp-handle') AND expires_at<=?`).bind(event.scheduledTime),
       env.DB.prepare(`DELETE FROM users WHERE is_guest=1 AND account_name GLOB 'guest-ai-*'
         AND NOT EXISTS (SELECT 1 FROM guest_sessions WHERE user_id=users.id)

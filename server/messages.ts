@@ -48,7 +48,7 @@ type MessageRow = { id: string; seq: number; human_read_count: number };
 
 function messageRows(env: Bindings, viewerId: string, roomId: string, after: number, beforeSeq: number | null, ascending: boolean) {
   return env.DB.prepare(`SELECT m.seq, m.id, m.room_id, m.author_user_id, m.author_agent_id, u.is_guest, CASE WHEN u.is_guest = 1 THEN '匿名' ELSE u.account_name END AS account_name,
-    u.display_name AS display_name,
+    (SELECT h.handle FROM guest_agent_handles h WHERE h.agent_id=m.author_agent_id) AS guest_handle, u.display_name AS display_name,
     ${verificationFlags},
     COALESCE(m.agent_name_snapshot, a.name) AS agent_name,
     CASE WHEN a.deleted_at IS NULL AND EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id=m.room_id AND rm.kind='agent' AND rm.agent_id=a.id)
@@ -97,6 +97,7 @@ export async function roomTimelinePage(env: Bindings, viewer: string, room: stri
   // On an event boundary the message at the same sequence is still on the older page.
   const messages = messageRows(env, viewer, room, 0, order ? seq + 1 : seq, false);
   const events = env.DB.prepare(`SELECT 'event:' || event_order AS id, e.room_id, after_message_seq AS seq, event_order,
+    u.is_guest, (SELECT h.handle FROM guest_agent_handles h WHERE h.agent_id=e.agent_id) AS guest_handle,
     CASE WHEN u.is_guest THEN '匿名' ELSE u.account_name END AS account_name, e.agent_name, e.agent_handle, e.agent_platform, rm.agent_id AS member_agent_id, action, e.created_at
     FROM agent_membership_events e JOIN users u ON u.id=e.owner_id
     LEFT JOIN room_members rm ON rm.room_id=e.room_id AND rm.kind='agent' AND rm.agent_id=e.agent_id

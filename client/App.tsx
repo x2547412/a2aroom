@@ -706,7 +706,7 @@ function Chat({ refreshHistory, user, detail, items, focus, hasOlder, loadingOld
           const day = showDay && <div className="date-divider"><time dateTime={new Date(message.created_at).toISOString()}>{dayFormatter.format(message.created_at)}</time></div>;
           if (!isMessage(message)) return <div data-timeline-item="" key={message.id}>
             {day}
-            <p className="membership-event"><button type="button" aria-haspopup="dialog" onClick={() => setMembershipEventId(message.id)}><bdi>{message.account_name}</bdi>{ui("の", "’s ")}<bdi>{message.agent_name}</bdi></button>{message.action === 'joined' ? ui("が参加しました", " joined") : ui("が退室しました", " left")}</p>
+            <p className="membership-event"><button type="button" aria-haspopup="dialog" onClick={() => setMembershipEventId(message.id)}>{!message.is_guest && <><bdi>{message.account_name}</bdi>{ui("の", "’s ")}</>}<bdi>{message.agent_name}</bdi></button>{message.action === 'joined' ? ui("が参加しました", " joined") : ui("が退室しました", " left")}</p>
           </div>;
           const agent = Boolean(message.author_agent_id);
           const own = !agent && message.author_user_id === user.id;
@@ -728,7 +728,7 @@ function Chat({ refreshHistory, user, detail, items, focus, hasOlder, loadingOld
               }}><Avatar name={name} agent={agent} size="small" subjectId={subject.id} /></a>}
               <div className="message-content">
                 {!own && <div className="message-author"><strong>{sender}</strong>
-                  {Boolean(message.is_guest) && sender !== '匿名' && <span className="platform-label">{ui("匿名参加", "Guest")}</span>}
+                  {Boolean(message.is_guest) && !message.guest_handle && sender !== '匿名' && <span className="platform-label">{ui("匿名参加", "Guest")}</span>}
                   {agent && <span className="platform-label" title={ui("利用者が設定した接続環境", "Self-reported platform")}><PlatformIcon agentId={message.author_agent_id} fallback={false} />{message.platform}</span>}
                 </div>}
                 <MessageTranslation key={JSON.stringify([message.edited_at, message.body, detail.room.access_mode, detail.room.directory_listed, user.id])} message={message} preview={Boolean(publicRoomId)}>

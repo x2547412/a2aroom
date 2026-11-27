@@ -50,6 +50,7 @@ export async function requireAgentMember(env: Bindings, auth: AgentAuth, roomId:
 
 export async function listMessages(env: Bindings, viewerId: string, roomId: string, afterSeq: number, limit: number, agentId: string, guestHash?: string, pollingConnection?: string): Promise<Message[]> {
   const result = await env.DB.prepare(`SELECT m.seq, m.id, m.room_id, m.author_user_id, m.author_agent_id,
+      (SELECT h.handle FROM guest_agent_handles h WHERE h.agent_id=m.author_agent_id) AS guest_handle,
       ${verificationFlags}, u.is_guest, CASE WHEN u.is_guest = 1 THEN 'Anonymous' ELSE u.account_name END AS account_name, u.display_name, COALESCE(m.agent_name_snapshot, a.name) AS agent_name, COALESCE(m.agent_platform_snapshot, a.platform) AS platform, m.sticker_id, m.media_label_only, m.body,
       CASE WHEN EXISTS (SELECT 1 FROM messages parent WHERE parent.id = m.reply_to AND parent.room_id = m.room_id AND parent.deleted_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM blocks pb WHERE (pb.user_id = ? AND pb.blocked_user_id = parent.author_user_id) OR (pb.blocked_user_id = ? AND pb.user_id = parent.author_user_id)))

@@ -51,7 +51,7 @@ export function ParticipantProfile({ room, subject, event, publicView, onClose, 
 
   const shown = profile ?? (event && {
     name: event.agent_name, account_name: event.account_name, handle: event.agent_handle,
-    platform: event.agent_platform, is_guest: false, bio: null,
+    platform: event.agent_platform, guest_handle: event.guest_handle, is_guest: event.is_guest, bio: null,
   });
   const publicUrl = profile?.kind === 'human' && !profile.is_guest && (location.origin === directoryOrigin || isAccountOrigin(location.origin)) &&
     /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(profile.account_name)
@@ -59,14 +59,14 @@ export function ParticipantProfile({ room, subject, event, publicView, onClose, 
   const identity = shown && <>
     <Avatar size="large" agent={kind === 'agent'} subjectId={profile ? id : null} name={shown.name} />
     {!event && profile?.can_rename && id ? <EditableAgentName id={id} name={profile.name} onSaved={name => { setProfile({ ...profile, name }); onRename?.(id, name); }} /> : <h1>{shown.name}</h1>}
-    {profile?.guest_handle && <p className="participant-handle">{ui("ゲストエージェント", "Guest agent")} · @{profile.guest_handle}</p>}
+    {shown.guest_handle && <p className="participant-handle">@{shown.guest_handle}</p>}
     {!shown.is_guest && <p className="participant-handle">{event && !shown.handle && ui("持ち主", "Owner")}@{shown.account_name}{shown.handle && '/' + shown.handle}</p>}
   </>;
   return <Modal title={event ? ui("エージェントの詳細", "Agent details") : ui("プロフィール", "Profile")} onClose={onClose}>
     <div className="participant-profile">
       {shown && <>
         {publicUrl ? <a className="participant-public-link" referrerPolicy="origin" href={publicUrl} aria-label={shown.name + ui("の公開プロフィールを見る", "’s public profile")}>{identity}</a> : identity}
-        {shown.platform && <p>{shown.account_name}{ui("のエージェント ·", "’s agent · ")} {shown.platform}</p>}
+        {!shown.is_guest && shown.platform && <p>{shown.account_name}{ui("のエージェント ·", "’s agent · ")} {shown.platform}</p>}
         {shown.bio && <p className="participant-bio">{shown.bio}</p>}
         {profile?.social_links && <SocialIcons links={profile.social_links} />}
       </>}

@@ -342,7 +342,8 @@ api.post('/rooms', async (c) => {
 
 api.get('/rooms/:id', async (c) => {
   const room = await requireHumanMember(c.env, c.get('user'), c.req.param('id'));
-  const members = await c.env.DB.prepare(`SELECT rm.id, rm.kind, rm.user_id, rm.agent_id, CASE WHEN u.is_guest = 1 THEN '匿名' ELSE u.account_name END AS account_name,
+  const members = await c.env.DB.prepare(`SELECT rm.id, rm.kind, rm.user_id, rm.agent_id, u.is_guest,
+    (SELECT h.handle FROM guest_agent_handles h WHERE h.agent_id=rm.agent_id) AS guest_handle, CASE WHEN u.is_guest = 1 THEN '匿名' ELSE u.account_name END AS account_name,
     u.display_name AS display_name, a.name AS agent_name, a.handle, a.platform, rm.joined_at FROM room_members rm JOIN users u ON u.id = rm.user_id
     LEFT JOIN agents a ON a.id = rm.agent_id WHERE rm.room_id = ? AND (u.is_guest = 0 OR EXISTS
       (SELECT 1 FROM guest_sessions gs WHERE gs.user_id = u.id AND gs.room_id = rm.room_id AND gs.expires_at > ?)) ORDER BY rm.joined_at`)

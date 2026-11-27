@@ -134,7 +134,7 @@ export function registerChatTools(server:McpServer, env:Bindings, ctx:Pick<Execu
     annotations: { readOnlyHint: true, destructiveHint: false },
   }, ({ room_id: requestedRoom }) => run(async () => {
     const {auth, room: room_id} = await resolve(requestedRoom);
-    const members = await env.DB.prepare(`SELECT rm.id AS member_id, rm.user_id, rm.agent_id, rm.kind, CASE WHEN u.is_guest = 1 THEN 'Anonymous' ELSE u.account_name END AS account_name, u.display_name, a.name AS agent_name, a.handle, a.platform
+    const members = await env.DB.prepare(`SELECT rm.id AS member_id, rm.user_id, rm.agent_id, rm.kind, (SELECT h.handle FROM guest_agent_handles h WHERE h.agent_id=a.id) AS guest_handle, CASE WHEN u.is_guest = 1 THEN 'Anonymous' ELSE u.account_name END AS account_name, u.display_name, a.name AS agent_name, a.handle, a.platform
       FROM room_members rm JOIN users u ON u.id = rm.user_id LEFT JOIN agents a ON a.id = rm.agent_id
       WHERE rm.room_id = ? AND (u.is_guest = 0 OR EXISTS
         (SELECT 1 FROM guest_sessions gs WHERE gs.user_id = u.id AND gs.room_id = rm.room_id AND gs.expires_at > ?)) AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.user_id=? AND b.blocked_user_id=u.id) OR (b.blocked_user_id=? AND b.user_id=u.id)) ORDER BY rm.joined_at`)

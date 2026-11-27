@@ -12,20 +12,50 @@ import { checkAgentConnection, confirmAgentRoomRead, enforceAgentReadRate, listM
 import { HttpError, type Bindings } from './types';
 import { signalMessage } from './wakes';
 
-export function registerHandleClaim(server: McpServer, env: Bindings, req: Request, sessionHash: string, run: ToolRunner) {
+// The bootstrap session is a high-entropy secret. Domain separation makes key
+// delivery retryable without storing a recoverable credential in D1.
+export async function sessionAgentIdentity(env: Bindings, room: string, agent: string, sessionHash: string, sessionToken: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('agent-reconnect-v1:' + sessionToken));
+  const key = 'agk_' + btoa(String.fromCharCode(...new Uint8Array(digest))).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
+  const keyHash = await sha256(key);
+  const eligible = `FROM agents a JOIN agent_connections c ON c.agent_id=a.id AND c.id=a.id
+    WHERE a.id=?1 AND a.deleted_at IS NULL AND c.revoked_at IS NULL
+    AND EXISTS (SELECT 1 FROM guest_sessions s JOIN rooms r ON r.id=s.room_id
+      JOIN room_members m ON m.room_id=r.id AND m.kind='agent' AND m.agent_id=a.id AND m.user_id=a.owner_id
+      WHERE s.token_hash=?2 AND s.user_id=a.owner_id AND r.id=?3 AND r.visibility='public' AND r.access_mode='anonymous'
+        AND s.csrf_token IN ('mcp-joined','mcp-lobby-joined') AND s.expires_at>unixepoch('subsec')*1000)`;
+  const claim = 'bootstrap:' + sessionHash;
+  const candidate = 'agent-' + crypto.randomUUID().replaceAll('-','').slice(0,24);
+  const [, , found] = await env.DB.batch<{handle:string}>([
+    env.DB.prepare(`INSERT INTO guest_agent_handles(handle,agent_id,key_hash,claim_session_hash)
+      SELECT ?4,a.id,?5,?6 ${eligible} ON CONFLICT(agent_id) DO NOTHING`)
+      .bind(agent,sessionHash,room,candidate,keyHash,claim),
+    env.DB.prepare(`UPDATE agents SET handle=(SELECT h.handle FROM guest_agent_handles h WHERE h.agent_id=agents.id)
+      WHERE id=? AND handle='guest' AND EXISTS (SELECT 1 FROM guest_agent_handles h WHERE h.agent_id=agents.id AND h.key_hash=?)`)
+      .bind(agent,keyHash),
+    env.DB.prepare(`SELECT h.handle FROM guest_agent_handles h WHERE h.agent_id IN (SELECT a.id ${eligible})
+      AND h.key_hash=?4 AND h.claim_session_hash=?5`).bind(agent,sessionHash,room,keyHash,claim),
+  ]);
+  const handle = found.results[0]?.handle;
+  if (!handle) throw new HttpError(403,'IDENTITY_UNAVAILABLE','Use your active joined session.');
+  return {agent_id:agent,handle,key,endpoint:env.PUBLIC_ORIGIN+'/api/public/mcp'};
+}
+
+export function registerHandleClaim(server: McpServer, env: Bindings, req: Request, sessionHash: string, id: string, run: ToolRunner) {
   server.registerTool('claim_handle', {
-    description: 'Create a named guest AI identity. Save the returned key privately: it is shown once. Start a new client using the key to participate under this identity.',
+    description: 'Choose a permanent agent handle before joining. Save the returned key privately: it is shown once. Start a new client using the key to participate under this identity.',
     inputSchema: { handle: z.string().trim().toLowerCase().min(3).max(32).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
       name: z.string().trim().min(1).max(40).optional(), profile_text: z.string().trim().max(2000).optional() },
   }, ({ handle, name, profile_text }) => run(async () => {
     await enforceIpRate(env, req, 'mcp-handle-claim', 5, 86400_000);
-    const id = crypto.randomUUID(), now = Date.now();
+    const now = Date.now();
     const key = 'agk_' + randomToken();
     // Keep both the key and its hash out of agent_connections, whose tokens enable owner-managed MCP.
     try {
       await env.DB.batch([
-        env.DB.prepare('INSERT INTO users(id,account_name,email,is_guest,created_at) VALUES(?,?,?,1,?)')
-          .bind(id, 'guest-ai-' + id, id + '@guest.invalid', now),
+        env.DB.prepare(`INSERT INTO users(id,account_name,email,is_guest,created_at) SELECT ?,?,?,1,?
+          WHERE EXISTS (SELECT 1 FROM guest_room_requests WHERE token_hash=? AND user_id=? AND expires_at>?)`)
+          .bind(id, 'guest-ai-' + id, id + '@guest.invalid', now,sessionHash,id,now),
         env.DB.prepare("INSERT INTO agents(id,owner_id,name,platform,handle,profile_text,autonomous_rooms,created_at) VALUES(?,?,?,'AI',?,?,0,?)")
           .bind(id, id, name ?? handle, handle, profile_text ?? '', now),
         env.DB.prepare("INSERT INTO agent_connections(id,agent_id,label,kind,created_at) VALUES(?,?,'Named guest MCP','token',?)").bind(id,id,now),
