@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, BookOpenCheck, Link as LinkIcon, Paperclip } from 'lucide-react';
+import { BookOpenCheck, ChevronLeft, ChevronRight, Link as LinkIcon, Paperclip, Search, X } from 'lucide-react';
 import { verdicts, type VerificationNote, type VerificationPage, type Verdict } from '../shared/verification';
 import { directoryRoomPath } from '../shared/directory';
 import { publicRequest, request, type Message } from './api';
-import { ui } from './language';
+import { locale, ui } from './language';
 import { Modal } from './Modal';
 import { ScrollMore } from './ScrollPages';
 import { attachmentUrl } from './ChatMedia';
@@ -99,17 +99,51 @@ export function VerificationArchive({onBack}:{onBack:()=>void}) {
     finally {if(!controller.signal.aborted)setBusy(false);}
   }
   useEffect(()=>{setPage(null);void load(query,null);return ()=>active.current?.abort();},[query,attempt]);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const searchLabel = ui('検証ノートを検索', 'Search verification notes');
+  const backLabel = ui('公開ルーム', 'Public rooms');
   return <main className="discovery verification-archive">
-    <button type="button" className="settings-back" onClick={onBack}><ArrowLeft size={18}/>{ui('公開ルーム','Public rooms')}</button>
-    <h1><BookOpenCheck size={24}/>{archiveLabel}</h1>
-    <input type="search" aria-label={ui('検証ノートを検索','Search verification notes')} placeholder={ui('検証ノートを検索','Search verification notes')} maxLength={120} value={search} onChange={e=>setSearch(e.target.value)}/>
-    <ul className="verification-entries">{page?.notes.map(note=><li key={note.message_id}>
-      <header><strong>{note.author}</strong><a href={directoryRoomPath(note.room_id,'public')} onClick={e=>{followAppLink(e,directoryRoomPath(note.room_id,'public'));}}>{note.room_name}</a></header>
-      <p>{note.body}</p><NoteContents note={note} publicView/>
-    </li>)}</ul>
-    {page && !page.notes.length && <p>{ui('該当する検証ノートはありません。','No matching verification notes.')}</p>}
-    {error ? <p role="alert">{error} <button className="text-button" onClick={()=>page?.next_before_seq ? void load(query,page.next_before_seq) : setAttempt(n=>n+1)}>{ui('再試行','Retry')}</button></p>
-      : busy ? <p role="status">{ui('読み込み中…','Loading…')}</p>
+    <header className="archive-heading">
+      <button type="button" className="toolbar-button" aria-label={backLabel} title={backLabel} onClick={onBack}>
+        <ChevronLeft size={24} aria-hidden="true" />
+      </button>
+      <h1>{archiveLabel}</h1>
+    </header>
+    <div className="discover-search">
+      <Search size={18} aria-hidden="true" />
+      <input ref={searchInput} type="search" aria-label={searchLabel} placeholder={searchLabel}
+        maxLength={120} value={search} onChange={e => setSearch(e.target.value)} />
+      {search && <button type="button" className="icon-button" aria-label={ui('検索をクリア', 'Clear search')}
+        onClick={() => { setSearch(''); searchInput.current?.focus(); }}><X size={16} aria-hidden="true" /></button>}
+    </div>
+    {!!page?.notes.length && <ul className="verification-entries">
+      {page.notes.map(note => {
+        const roomPath = directoryRoomPath(note.room_id, 'public');
+        const date = new Date(note.created_at);
+        return <li key={note.message_id}>
+          <header className="archive-note-header">
+            <a href={roomPath} onClick={e => followAppLink(e, roomPath)}>
+              {note.room_name}<ChevronRight size={15} aria-hidden="true" />
+            </a>
+            <div className="archive-byline">
+              <strong>{note.author}</strong>
+              <time dateTime={date.toISOString()}>{date.toLocaleDateString(locale)}</time>
+            </div>
+          </header>
+          {note.body && <p className="archive-note-body">{note.body}</p>}
+          <NoteContents note={note} publicView />
+        </li>;
+      })}
+    </ul>}
+    {page && !page.notes.length && !error && !busy && <div className="archive-empty" role="status">
+      <span className="archive-empty-icon" aria-hidden="true">{query ? <Search size={28} /> : <BookOpenCheck size={28} />}</span>
+      <h2>{query ? ui('検索結果はありません', 'No matching notes') : ui('検証ノートはまだありません', 'No verification notes yet')}</h2>
+      <p>{query ? ui('別のキーワードで検索してみてください。', 'Try a different keyword.')
+        : ui('公開ルームの投稿に検証ノートを追加すると、ここに表示されます。', 'Notes added to posts in listed public rooms appear here.')}</p>
+    </div>}
+    {error ? <div className="discovery-state" role="alert"><p>{error}</p>
+      <button type="button" className="outline-button compact" onClick={() => page?.next_before_seq ? void load(query,page.next_before_seq) : setAttempt(n=>n+1)}>{ui('再試行', 'Retry')}</button></div>
+      : busy ? <p className="discovery-state" role="status">{ui('読み込み中…','Loading…')}</p>
       : page?.next_before_seq && <ScrollMore key={page.next_before_seq} load={()=>void load(query,page.next_before_seq)}/>}
   </main>;
 }
