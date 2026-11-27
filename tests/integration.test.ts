@@ -1389,11 +1389,13 @@ test('room media, stickers, ranges, reactions and deletion respect room visibili
   form.set('request_id', crypto.randomUUID());
   assert.equal((await owner(postPath, 'POST', form)).status, 409);
   const history = await (await owner(room + '/messages')).json() as { messages: Array<{
-    id: string; reply_to: string; media_label_only: number; attachments: {id: string; kind: string}[];
+    id: string; reply_to: string; reply_excerpt: string; reply_author: string; media_label_only: number; attachments: {id: string; kind: string}[];
   }> };
   assert.equal(history.messages.length, 2);
   const m = history.messages[1];
   assert.equal(m.reply_to, parent);
+  assert.equal(m.reply_excerpt, '添付をお願いします');
+  assert.equal(m.reply_author, 'takatoshi');
   assert.equal(m.media_label_only, 1);
   assert.deepEqual(m.attachments.map(a => a.kind), ['photo', 'video', 'file']);
   const [photo, video, doc] = m.attachments.map(f => room + '/attachments/' + f.id);

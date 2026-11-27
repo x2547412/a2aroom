@@ -505,9 +505,9 @@ function MessageBubble({ children, onActions, stickerOnly = false }: { children:
   </button>;
 }
 
-type MessageFocus = { room: string; message: string };
+type MessageFocus = { room: string; message: string; replySeq?: number };
 
-function Chat({ refreshHistory, user, detail, items, focus, hasOlder, loadingOlder, onOlder, onSend, onReact, onAgentChanged, onRepliesRead, guestCsrf, onEdit, onDelete, onReport, onBlock, canSend = true, onJoin, accountJoin, joining = false }: { refreshHistory: () => void; focus?: MessageFocus | null; user: User; detail: RoomDetail; items: TimelineItem[]; hasOlder: boolean; loadingOlder: boolean; onOlder: () => void; onSend: (body: string, replyTo: string | null, media?: MediaDraft) => Promise<boolean>; onReact: (message: Message, emoji: string | null) => Promise<void>; onAgentChanged?: (id: string, name: string) => void; onRepliesRead?: () => void; guestCsrf?: string; onEdit?: (message: Message, body: string) => void; onDelete?: (message: Message) => void; onReport?: (message: Message) => void; onBlock?: (message: Message) => void; canSend?: boolean; onJoin?: () => void; accountJoin?: boolean; joining?: boolean }) {
+function Chat({ refreshHistory, user, detail, items, focus, onFocus, hasOlder, loadingOlder, onOlder, onSend, onReact, onAgentChanged, onRepliesRead, guestCsrf, onEdit, onDelete, onReport, onBlock, canSend = true, onJoin, accountJoin, joining = false }: { refreshHistory: () => void; focus?: MessageFocus | null; onFocus: (focus: MessageFocus) => void; user: User; detail: RoomDetail; items: TimelineItem[]; hasOlder: boolean; loadingOlder: boolean; onOlder: () => void; onSend: (body: string, replyTo: string | null, media?: MediaDraft) => Promise<boolean>; onReact: (message: Message, emoji: string | null) => Promise<void>; onAgentChanged?: (id: string, name: string) => void; onRepliesRead?: () => void; guestCsrf?: string; onEdit?: (message: Message, body: string) => void; onDelete?: (message: Message) => void; onReport?: (message: Message) => void; onBlock?: (message: Message) => void; canSend?: boolean; onJoin?: () => void; accountJoin?: boolean; joining?: boolean }) {
   const [body, setBody] = useState('');
   const [reply, setReply] = useState<Message | null>(null);
   const [busy, setBusy] = useState(false);
@@ -610,11 +610,23 @@ function Chat({ refreshHistory, user, detail, items, focus, hasOlder, loadingOld
   }, [items[0]?.id]);
 
   const targetLoaded = focus && byId.has(focus.message);
+  const first = items[0];
+  const replyPage = useRef<{ focus: MessageFocus; cursor: string } | null>(null);
+  const reachedFocus = useRef<MessageFocus | null>(null);
+  const needsReplyPage = focus !== reachedFocus.current && focus?.replySeq !== undefined && !targetLoaded && hasOlder && first &&
+    (first.seq > focus.replySeq || (first.seq === focus.replySeq && !isMessage(first)));
+  useEffect(() => {
+    if (!needsReplyPage || loadingOlder || !focus) return;
+    if (replyPage.current?.focus === focus && replyPage.current.cursor === first.id) return;
+    replyPage.current = { focus, cursor: first.id };
+    onOlder();
+  }, [focus, needsReplyPage, loadingOlder, first?.id, onOlder]);
   useLayoutEffect(() => {
     if (!focus || focus.room !== detail.room.id || !targetLoaded) return;
     setProfile(null); setMembershipEventId(null); setActionId(null); setSheet(null); setPicking(false); setPhoto(null);
     const row = scroll.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(focus.message)}"]`);
     if (!row) return;
+    reachedFocus.current = focus;
     follow.current = false;
     row.scrollIntoView({ block: 'center', behavior: 'instant' });
     row.classList.add('notification-target');
@@ -731,8 +743,13 @@ function Chat({ refreshHistory, user, detail, items, focus, hasOlder, loadingOld
                 </div>}
                 <MessageTranslation key={JSON.stringify([message.edited_at, message.body, detail.room.access_mode, detail.room.directory_listed, user.id])} message={message} preview={Boolean(publicRoomId)}>
                 {(displayBody, translationControl) => <><SwipeReply onReply={canSend ? () => { replyTo(message); composerInput.current?.focus({ preventScroll: true }); } : undefined}>
-                {(message.sticker_id || !message.media_label_only || target) && <MessageBubble stickerOnly={Boolean(message.sticker_id && message.media_label_only && !target)} onActions={canSend ? () => openActions(message) : undefined}>
-                  {target && <span className="reply-context"><Reply size={13} aria-label={ui("返信先", "Replying to")} /><span>{target.body}</span></span>}
+                {message.reply_to && <button type="button" className="reply-context" onClick={() => onFocus({
+                  room: detail.room.id, message: message.reply_to!, replySeq: target?.seq ?? message.reply_seq ?? undefined,
+                })}>
+                  <span className="reply-caption"><Reply size={14} aria-hidden="true"/>{ui("返信先: ", "Reply to: ")}<bdi>{target ? authorName(target) : message.reply_author}</bdi></span>
+                  <span className="reply-excerpt" dir="auto">{target?.body || message.reply_excerpt || ui("元のメッセージ", "Original message")}</span>
+                </button>}
+                {(message.sticker_id || !message.media_label_only) && <MessageBubble stickerOnly={Boolean(message.sticker_id && message.media_label_only)} onActions={canSend ? () => openActions(message) : undefined}>
                   {message.sticker_id && <Sticker id={message.sticker_id} />}
                   {!message.media_label_only && displayBody.split(/(@[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9-]+)?)/gi).map((part, i) => part.startsWith('@') ? <span className="mention" key={i}>{part}</span> : part)}
                 </MessageBubble>}
@@ -775,6 +792,7 @@ function Chat({ refreshHistory, user, detail, items, focus, hasOlder, loadingOld
         }} /><button className="send-button" disabled={busy || !hasContent} aria-label={busy ? ui("送信中", "Sending") : ui("送信", "Send")} aria-busy={busy}><Send size={20} strokeWidth={1.9} /></button></div>
       </form>}
     </div>
+    {focus !== reachedFocus.current && focus?.replySeq !== undefined && !targetLoaded && <p className="receipt-error" role="status">{needsReplyPage && (loadingOlder || replyPage.current?.focus !== focus || replyPage.current.cursor !== first.id) ? ui("返信先を読み込み中…", "Loading original message…") : ui("返信先を表示できません。", "Original message unavailable.")}</p>}
     {readError && <p className="receipt-error" role="status">{readError}</p>}
     {noteMessage && <VerificationDialog key={noteMessage.id} message={noteMessage} userId={user.id} canSend={canSend} listed={Boolean(detail.room.directory_listed)}
       publicView={Boolean(publicRoomId)} csrf={guestCsrf} onChange={refreshHistory} onClose={()=>setNoteMessage(null)}/>}
@@ -952,7 +970,7 @@ export function PublicChat({ roomId, onBack, onLogin, onAccountJoin }: { roomId:
     {guest.active && !unavailable && <MessageToast key={guest.user_id} path={'/public' + path + '/inbox'} onIncoming={() => void load().catch(cause => setError(String(cause)))}
       onOpen={m => { setShowInfo(false); setFocus({ room: roomId, message: m.id }); }} />}
     {showInfo && room && <Modal title={room.name} onClose={() => setShowInfo(false)}><div className="detail-section"><p>{ui("主催", "Hosted by")} {room.host_display_name || room.host_account} · {accessLabel(room.access_mode)}</p>{room.description && <p>{room.description}</p>}</div>{room.access_mode === 'anonymous' && <GuestAgentLink roomId={room.id} />}</Modal>}
-    <main className="main-panel">{error && <div className="global-error" role="alert"><span>{error}</span><button aria-label={ui("閉じる", "Close")} onClick={() => setError('')}><X size={16} /></button></div>}{unavailable ? <div className="welcome-panel"><h1>{ui("ルームを開けません", "Room unavailable")}</h1><p>{ui("参加にはログインまたは招待が必要な場合があります。", "You may need to sign in or receive an invitation.")}</p><button className="outline-button" onClick={onAccountJoin ? onBack : onLogin}>{onAccountJoin ? ui("戻る", "Back") : ui("ログイン", "Sign in")}</button></div> : room ? <Chat key={room.id} focus={focus} refreshHistory={() => void load().catch(cause => setError(String(cause)))} user={{ id: guest.active ? guest.user_id : '', account_name: ui("匿名", "Anonymous"), display_name: guest.active ? guest.display_name : null, email: '' }} detail={{ room, members: [] }} items={timeline.items} hasOlder={timeline.has_more} loadingOlder={loadingOlder} onOlder={() => void older()} onSend={send} onReact={react} guestCsrf={guest.active ? guest.csrf : undefined} canSend={guest.active} accountJoin={Boolean(onAccountJoin)} onJoin={onAccountJoin ? () => { setJoining(true); void onAccountJoin().catch(cause => setError(cause.message)).finally(() => setJoining(false)); } : openJoin} joining={joining} onReport={guest.active ? (message) => void report(message) : undefined} /> : <div className="loading-screen">{ui("読み込み中…", "Loading…")}</div>}</main></div></ImageContext.Provider>;
+    <main className="main-panel">{error && <div className="global-error" role="alert"><span>{error}</span><button aria-label={ui("閉じる", "Close")} onClick={() => setError('')}><X size={16} /></button></div>}{unavailable ? <div className="welcome-panel"><h1>{ui("ルームを開けません", "Room unavailable")}</h1><p>{ui("参加にはログインまたは招待が必要な場合があります。", "You may need to sign in or receive an invitation.")}</p><button className="outline-button" onClick={onAccountJoin ? onBack : onLogin}>{onAccountJoin ? ui("戻る", "Back") : ui("ログイン", "Sign in")}</button></div> : room ? <Chat key={room.id} focus={focus} onFocus={setFocus} refreshHistory={() => void load().catch(cause => setError(String(cause)))} user={{ id: guest.active ? guest.user_id : '', account_name: ui("匿名", "Anonymous"), display_name: guest.active ? guest.display_name : null, email: '' }} detail={{ room, members: [] }} items={timeline.items} hasOlder={timeline.has_more} loadingOlder={loadingOlder} onOlder={() => void older()} onSend={send} onReact={react} guestCsrf={guest.active ? guest.csrf : undefined} canSend={guest.active} accountJoin={Boolean(onAccountJoin)} onJoin={onAccountJoin ? () => { setJoining(true); void onAccountJoin().catch(cause => setError(cause.message)).finally(() => setJoining(false)); } : openJoin} joining={joining} onReport={guest.active ? (message) => void report(message) : undefined} /> : <div className="loading-screen">{ui("読み込み中…", "Loading…")}</div>}</main></div></ImageContext.Provider>;
 }
 
 function hostListUrl() {
@@ -1222,7 +1240,7 @@ export function App() {
   else if (tab === 'notifications') content = <Notifications items={notifications} onOpen={openNotice} />;
   else if (tab === 'account') content = <AccountSettings onAgents={() => openAgent(null)} onProfileSaved={patch => setSession(previous => previous?.authenticated ? { ...previous, user: { ...previous.user, ...patch } } : previous)} user={session.user} operator={session.operator} section={accountSection} onSelect={openAccountSection} />;
   else if (inviteCode) content = <InviteView code={inviteCode} onAccept={(id) => { run(loadRooms()); openRoom(id); }} onCancel={openInbox} />;
-  else if (currentDetail) content = <Chat onRepliesRead={refreshNotices} refreshHistory={() => run(loadRoom(currentDetail.room.id))} key={currentDetail.room.id} focus={focus} user={session.user} detail={currentDetail} items={timeline.items} hasOlder={timeline.has_more} loadingOlder={loadingOlder} onOlder={() => void loadOlder()} onSend={send} onReact={react} onAgentChanged={(id, name) => agentRenamed(currentDetail.room.id, id, name)} onEdit={(message, body) => void modify(message, body)} onDelete={(message) => void modify(message)} onReport={(message) => void report(message)} onBlock={(message) => void block(message)} />;
+  else if (currentDetail) content = <Chat onRepliesRead={refreshNotices} refreshHistory={() => run(loadRoom(currentDetail.room.id))} key={currentDetail.room.id} focus={focus} onFocus={setFocus} user={session.user} detail={currentDetail} items={timeline.items} hasOlder={timeline.has_more} loadingOlder={loadingOlder} onOlder={() => void loadOlder()} onSend={send} onReact={react} onAgentChanged={(id, name) => agentRenamed(currentDetail.room.id, id, name)} onEdit={(message, body) => void modify(message, body)} onDelete={(message) => void modify(message)} onReport={(message) => void report(message)} onBlock={(message) => void block(message)} />;
   else if (joinCandidate && activeId === joinCandidate.id) content = <div className="welcome-panel"><RoomFaces room={joinCandidate} /><h1>{joinCandidate.name}</h1><p>{joinCandidate.host_account} · {accessLabel(joinCandidate.access_mode)}</p><button className="primary-button" onClick={() => void joinPublicRoom(joinCandidate.id)}>{ui("ルームに参加", "Join room")}</button></div>;
   else if (activeId) content = <div className="welcome-panel" role="status"><p>{error ? ui("会話を開けませんでした。", "Could not open the chat.") : ui("会話を読み込み中…", "Loading chat…")}</p></div>;
   else content = <><RoomListRefresh reload={() => loadRooms().catch(cause => setError(cause instanceof Error ? cause.message : ui("ルームを取得できませんでした。","Could not load rooms.")))}/>

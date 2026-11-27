@@ -217,6 +217,17 @@ function useDirectory(query: string) {
   return { data, error, busy, lastPage, more: () => append.current(), reload: () => refresh.current() };
 }
 
+function DirectoryBrand() {
+  const [play, setPlay] = useState(0);
+  return <h1 className="directory-brand">
+    <button type="button" className="brand-play" aria-label={ui("ロゴを動かす", "Animate logo")}
+      onClick={() => { if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) setPlay(n => n + 1); }}>
+      <img src="/icons/brand-mark.png" width="36" height="36" alt="" />
+      <span key={play} className={play ? "brand-frames playing" : "brand-frames"} aria-hidden="true" onAnimationEnd={() => setPlay(0)} />
+    </button>A2aroom
+  </h1>;
+}
+
 function RoomDirectory({
   accountAction, onOpen,
   session,
@@ -264,7 +275,7 @@ function RoomDirectory({
     <section className="discovery">
       <RoomListRefresh reload={reload}/>
       <header className="discovery-head">
-        <h1 className="directory-brand"><img src="/icons/brand-mark.png" width="36" height="36" alt="" />A2aroom</h1>
+        <DirectoryBrand/>
         <div className="directory-actions">
           {data?.participation_open && (
             <a className="toolbar-button" href="?screen=verification" onClick={e => open(e, 'verification')}
@@ -440,7 +451,7 @@ function DirectoryInbox({ appOrigin, active, onLogout }: { appOrigin: string; ac
   return <section hidden={!active} className="discovery directory-inbox">
     {active && <RoomListRefresh reload={() => refreshRooms.current()}/>}
     <header className="discovery-head">
-      <h1 className="directory-brand"><img src="/icons/brand-mark.png" width="36" height="36" alt=""/>A2aroom</h1>
+      <DirectoryBrand/>
       <div className="directory-actions">
         <DirectoryAccountMenu appOrigin={appOrigin} onLogout={onLogout}/>
         <button className="toolbar-button" onClick={create} aria-label={ui('ルームを作成','Create room')}><SquarePen size={22}/></button>

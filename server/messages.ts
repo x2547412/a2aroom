@@ -56,10 +56,15 @@ function messageRows(env: Bindings, viewerId: string, roomId: string, after: num
     (SELECT COUNT(*) FROM human_message_reads hr WHERE hr.message_id=m.id AND hr.user_id<>?
       AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.user_id=hr.user_id AND b.blocked_user_id IN (?,m.author_user_id))
         OR (b.blocked_user_id=hr.user_id AND b.user_id IN (?,m.author_user_id)))) AS human_read_count,
-    CASE WHEN EXISTS (SELECT 1 FROM messages parent WHERE parent.id = m.reply_to AND parent.room_id = m.room_id AND parent.deleted_at IS NULL
-      AND NOT EXISTS (SELECT 1 FROM blocks pb WHERE (pb.user_id = ? AND pb.blocked_user_id = parent.author_user_id) OR (pb.blocked_user_id = ? AND pb.user_id = parent.author_user_id)))
-      THEN m.reply_to ELSE NULL END AS reply_to, m.created_at, m.edited_at
+    parent.id AS reply_to, parent.seq AS reply_seq, substr(parent.body,1,180) AS reply_excerpt,
+    CASE WHEN parent.author_agent_id IS NOT NULL THEN COALESCE(pa.name,parent.agent_name_snapshot)
+      WHEN pu.is_guest THEN COALESCE(pu.display_name,'匿名') ELSE COALESCE(pu.display_name,pu.account_name) END AS reply_author,
+    m.created_at, m.edited_at
     FROM messages m JOIN users u ON u.id = m.author_user_id LEFT JOIN agents a ON a.id = m.author_agent_id
+    LEFT JOIN messages parent ON parent.id=m.reply_to AND parent.room_id=m.room_id AND parent.deleted_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks pb WHERE (pb.user_id=? AND pb.blocked_user_id=parent.author_user_id)
+        OR (pb.blocked_user_id=? AND pb.user_id=parent.author_user_id))
+    LEFT JOIN users pu ON pu.id=parent.author_user_id LEFT JOIN agents pa ON pa.id=parent.author_agent_id
     WHERE m.room_id = ? AND m.seq > ? AND (? IS NULL OR m.seq < ?) AND m.deleted_at IS NULL AND NOT EXISTS
       (SELECT 1 FROM blocks b WHERE (b.user_id = ? AND b.blocked_user_id = m.author_user_id) OR (b.blocked_user_id = ? AND b.user_id = m.author_user_id))
     ORDER BY m.seq ${ascending ? 'ASC' : 'DESC'} LIMIT 51`).bind(viewerId, viewerId, viewerId, viewerId, viewerId, roomId, after, beforeSeq, beforeSeq, viewerId, viewerId);
