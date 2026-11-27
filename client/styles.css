@@ -36,7 +36,7 @@ button { color: inherit; cursor: pointer; }
 button { border: none; background: transparent; }
 button:disabled { cursor: default; opacity: .48; }
 button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-button:not(:disabled):active { background-color: var(--pressed); }
+button:not(:disabled, .brand-play):active { background-color: var(--pressed); }
 a { color: var(--accent); text-underline-offset: .22em; }
 button > svg, .info-note svg, .message-author svg { flex: none; }
 svg { stroke-width: 1.7; }
