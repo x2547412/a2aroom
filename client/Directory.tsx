@@ -508,9 +508,9 @@ export function PublicHome({ onLogin }: { onLogin?: () => void }) {
   if (view === 'verification') return <VerificationArchive onBack={back}/>;
   if (view === 'settings' || view === 'language' || view === 'appearance' || view === 'about' || view === 'developers') return <div className="app-shell">
     <header className="app-bar settings-bar"><div className="app-bar-inner"><button type="button" className="toolbar-button back-to-rooms"
-      aria-label={ui('公開ルームに戻る','Back to public rooms')} onClick={() => view === 'settings' || history.state?.directoryScreen ? back() : navigate('settings',true)}><ChevronLeft size={24}/></button></div></header>
+      aria-label={view === 'settings' ? ui('公開ルームに戻る','Back to public rooms') : ui('設定に戻る','Back to settings')} onClick={() => view === 'settings' || history.state?.directoryScreen ? back() : navigate('settings',true)}><ChevronLeft size={24}/></button></div></header>
     <main className="main-panel"><AccountSettings section={view === 'settings' ? null : view}
-      onSelect={screen => navigate(screen)} onBack={() => history.state?.directoryScreen ? back() : navigate('settings',true)}/></main>
+      onSelect={screen => navigate(screen)}/></main>
   </div>;
   return (
     <main className={signedIn ? "discovery-shell with-primary-nav" : "discovery-shell"}>

@@ -33,7 +33,7 @@ import { AttachmentSheet, AttachmentView, DraftTray, ReactionCounts, ReactionPic
 import { maxFileBytes, maxFiles, uploadLimitLabel, type Attachment, type Reaction, type StickerId } from '../shared/chat';
 import { WebhookSettings } from './WebhookSettings';
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, Download, Ban, Bell, Bot, ContactRound, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Flag, Info, KeyRound, Link2, LogOut, MessageCircle, Languages, MoreHorizontal, Palette, Pencil, Plus, Reply, Settings2, Send, ShieldCheck, SquarePen, Terminal, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowRight, Download, Ban, Bell, Bot, ContactRound, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Flag, Info, KeyRound, Link2, LogOut, MessageCircle, Languages, MoreHorizontal, Palette, Pencil, Plus, Reply, Settings2, Send, ShieldCheck, SquarePen, Terminal, Trash2, UserRound, X } from 'lucide-react';
 import { ApiError, browserSession, dateLabel, publicRequest, request, setCsrf, time, type AccessMode, type Agent, type Connection, type Member, type Message, type Notice, type InboxRoom, type Room, type SessionResponse, type User } from './api';
 import { RoomInbox, RoomFaces } from './RoomList';
 import { Avatar, ImageContext, PlatformIcon, type ImageKind, type ImageVersions } from './Avatar';
@@ -387,7 +387,6 @@ function ProfileSocialIcons({refresh}: {refresh:boolean}) {
 type SettingsProps = {
   section: AccountSection | null;
   onSelect: (section: AccountSection) => void;
-  onBack: () => void;
 } & ({
   user: User;
   operator: boolean;
@@ -400,7 +399,7 @@ type SettingsProps = {
   onProfileSaved?: undefined;
 });
 
-export function AccountSettings({ user, operator, section, onSelect, onBack, onAgents, onProfileSaved }: SettingsProps) {
+export function AccountSettings({ user, operator, section, onSelect, onAgents, onProfileSaved }: SettingsProps) {
   const [editing, setEditing] = useState(new URLSearchParams(location.search).has('manage_login'));
   const appearance = useSyncExternalStore(window.roomAppearance.subscribe, window.roomAppearance.get);
   const [settings, setSettings] = useState<{ mention_enabled: number } | null>(null);
@@ -447,8 +446,7 @@ export function AccountSettings({ user, operator, section, onSelect, onBack, onA
       <nav className="settings-list" aria-label={ui("設定項目", "Settings menu")}>{items.filter(item => user || item.id === 'language' || item.id === 'appearance' || item.id === 'about' || item.id === 'developers').map((item) =>
         <SettingsRow key={item.id} label={item.id === 'agents' ? ui("エージェント", "Agents") : accountTitles[item.id]} note={item.description} icon={item.icon} onClick={() => item.id === 'agents' ? onAgents?.() : onSelect(item.id)} />)}</nav>
     </> : <div className="account-detail">
-      {!user && <><button type="button" className="settings-back" onClick={onBack}><ArrowLeft size={17} />{ui("設定", "Settings")}</button>
-      <header className="page-heading"><div><h1>{accountTitles[current]}</h1></div></header></>}
+      {!user && <header className="page-heading"><div><h1>{accountTitles[current]}</h1></div></header>}
       {(current === 'about' || current === 'developers') ? <SiteLinks group={current} rows showLanguage={false}/> : <div className={current === 'profile' ? "settings-detail-content own-profile" : "settings-detail-content"}>
         {current === 'inquiries' && operator && <InquiryInbox/>}
         {current === 'language' && <LanguageField/>}
@@ -1222,7 +1220,7 @@ export function App() {
   let content: ReactNode;
   if (tab === 'agents') content = <AgentSettings key={selectedAgent ?? 'list'} agents={agents} connections={connections} accountName={session.user.account_name} selectedAgent={selectedAgent} onSelect={openAgent} onDeleted={id => { setAgents(items => items.filter(a => a.id !== id)); openAgent(null); run(Promise.all([loadAgents(), loadRooms(), loadImages()])); }} onReload={() => run(loadAgents())} onAdd={addAgent} />;
   else if (tab === 'notifications') content = <Notifications items={notifications} onOpen={openNotice} />;
-  else if (tab === 'account') content = <AccountSettings onAgents={() => openAgent(null)} onProfileSaved={patch => setSession(previous => previous?.authenticated ? { ...previous, user: { ...previous.user, ...patch } } : previous)} user={session.user} operator={session.operator} section={accountSection} onSelect={openAccountSection} onBack={closeAccountSection} />;
+  else if (tab === 'account') content = <AccountSettings onAgents={() => openAgent(null)} onProfileSaved={patch => setSession(previous => previous?.authenticated ? { ...previous, user: { ...previous.user, ...patch } } : previous)} user={session.user} operator={session.operator} section={accountSection} onSelect={openAccountSection} />;
   else if (inviteCode) content = <InviteView code={inviteCode} onAccept={(id) => { run(loadRooms()); openRoom(id); }} onCancel={openInbox} />;
   else if (currentDetail) content = <Chat onRepliesRead={refreshNotices} refreshHistory={() => run(loadRoom(currentDetail.room.id))} key={currentDetail.room.id} focus={focus} user={session.user} detail={currentDetail} items={timeline.items} hasOlder={timeline.has_more} loadingOlder={loadingOlder} onOlder={() => void loadOlder()} onSend={send} onReact={react} onAgentChanged={(id, name) => agentRenamed(currentDetail.room.id, id, name)} onEdit={(message, body) => void modify(message, body)} onDelete={(message) => void modify(message)} onReport={(message) => void report(message)} onBlock={(message) => void block(message)} />;
   else if (joinCandidate && activeId === joinCandidate.id) content = <div className="welcome-panel"><RoomFaces room={joinCandidate} /><h1>{joinCandidate.name}</h1><p>{joinCandidate.host_account} · {accessLabel(joinCandidate.access_mode)}</p><button className="primary-button" onClick={() => void joinPublicRoom(joinCandidate.id)}>{ui("ルームに参加", "Join room")}</button></div>;
