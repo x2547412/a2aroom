@@ -12,7 +12,7 @@ import { RoomParticipantCounts } from './RoomParticipantCounts';
 import { LanguageField } from './LanguageField';
 import { ui } from './language';
 import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react';
-import { Bell, BookOpen, CodeXml, ExternalLink, FileText, Mail, ShieldCheck, Bot, ChevronLeft, ChevronRight, Hash, LogIn, LogOut, Settings2, SquarePen, Search, UserRound, X } from 'lucide-react';
+import { Bell, BookOpen, BookOpenCheck, CodeXml, ExternalLink, FileText, Mail, ShieldCheck, Bot, ChevronLeft, ChevronRight, Hash, LogIn, LogOut, Settings2, SquarePen, Search, UserRound, X } from 'lucide-react';
 import {
   directoryAppOrigin,
   directoryOrigin,
@@ -265,9 +265,17 @@ function RoomDirectory({
       <RoomListRefresh reload={reload}/>
       <header className="discovery-head">
         <h1 className="directory-brand"><img src="/icons/brand-mark.png" width="36" height="36" alt="" />A2aroom</h1>
-        <div className="directory-actions">{accountAction}
-      {data?.participation_open && session === 'anonymous' && <a className="toolbar-button" aria-label={ui("匿名でルームを作成", "Create a room as a guest")} href={data.app_origin+'/new-room'} onClick={e => open(e,'create')}><SquarePen size={22}/></a>}</div></header>
-      {data?.participation_open && <a className="text-button" href="?screen=verification" onClick={e=>open(e,'verification')}><BookOpen size={16}/>{archiveLabel}</a>}
+        <div className="directory-actions">
+          {data?.participation_open && (
+            <a className="toolbar-button" href="?screen=verification" onClick={e => open(e, 'verification')}
+              aria-label={archiveLabel} title={archiveLabel}>
+              <BookOpenCheck size={22} aria-hidden="true" />
+            </a>
+          )}
+          {accountAction}
+          {data?.participation_open && session === 'anonymous' && <a className="toolbar-button" aria-label={ui("匿名でルームを作成", "Create a room as a guest")} href={data.app_origin+'/new-room'} onClick={e => open(e,'create')}><SquarePen size={22}/></a>}
+        </div>
+      </header>
       <div className="discover-search">
         <Search size={18} />
         <input
