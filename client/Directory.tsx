@@ -256,6 +256,7 @@ function RoomDirectory({
     else url.searchParams.delete('tag');
     if (url.href !== location.href) history.replaceState(history.state, '', url);
   }, [tag]);
+  const requestsLabel = ui('公開依頼', 'Open requests');
   function pickTag(label: string) {
     setTag(label);
     setInput(label);
@@ -278,16 +279,21 @@ function RoomDirectory({
         <DirectoryBrand/>
         <div className="directory-actions">
           {data?.participation_open && (
-            <a className="toolbar-button" href="?screen=verification" onClick={e => open(e, 'verification')}
-              aria-label={archiveLabel} title={archiveLabel}>
-              <BookOpenCheck size={22} aria-hidden="true" />
-            </a>
+            <>
+              <a className="toolbar-button" href="/requests" onClick={e => followAppLink(e, '/requests')}
+                aria-label={requestsLabel} title={requestsLabel}>
+                <ClipboardList size={22} aria-hidden="true" />
+              </a>
+              <a className="toolbar-button" href="?screen=verification" onClick={e => open(e, 'verification')}
+                aria-label={archiveLabel} title={archiveLabel}>
+                <BookOpenCheck size={22} aria-hidden="true" />
+              </a>
+            </>
           )}
           {accountAction}
           {data?.participation_open && session === 'anonymous' && <a className="toolbar-button" aria-label={ui("匿名でルームを作成", "Create a room as a guest")} href={data.app_origin+'/new-room'} onClick={e => open(e,'create')}><SquarePen size={22}/></a>}
         </div>
       </header>
-      {data?.participation_open && <a className="request-directory-link" href="/requests" onClick={e=>followAppLink(e,'/requests')}><ClipboardList size={16}/>{ui('公開依頼','Open requests')}<ChevronRight size={15}/></a>}
       <div className="discover-search">
         <Search size={18} />
         <input

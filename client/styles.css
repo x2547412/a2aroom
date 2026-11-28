@@ -772,6 +772,14 @@ a.menu-action { overflow-wrap: anywhere; }
 .directory-inbox[hidden] { display: none; }
 .directory-actions,.profile-summary { display:flex; align-items:center; gap:10px; }
 .directory-actions a { color:var(--ink); text-decoration:none; }
+@media (max-width: 399px) {
+  .discovery-head .directory-actions { gap: 2px; }
+}
+@media (max-width: 374px) {
+  .discovery-head { gap: 2px; }
+  .discovery-head .directory-actions { gap: 0; }
+  .discovery-head .directory-brand { gap: 3px; font-size: 17px; }
+}
 .profile-summary { gap:18px; }
 .profile-summary strong,.profile-summary small { display:block; }
 .profile-summary strong { font-size:21px; }
@@ -838,4 +846,3 @@ html.room-list-scroll { overscroll-behavior-y: contain; }
 .request-detail dd { margin: 4px 0 14px; }
 .request-detail dd:last-child { margin-bottom: 0; }
 .request-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.request-directory-link { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-size: .9rem; text-decoration: none; margin: 4px 0 12px; }
