@@ -9,7 +9,7 @@ export function navigateWithinApp(path: string, replace = false) {
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
-export function followAppLink(event: MouseEvent<HTMLAnchorElement>, path: string, after?: () => void) {
+export function followAppLink(event: MouseEvent<HTMLElement>, path: string, after?: () => void) {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
   event.preventDefault();
   after?.();

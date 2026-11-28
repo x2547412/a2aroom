@@ -1,9 +1,11 @@
+import { actorCte, actorValues, admitted, listedViewers, membership, noBlock, target, type Actor } from './message-access';
+export { agentReviewer } from './message-access';
 import { z } from 'zod';
 import { verdicts, type VerificationNote } from '../shared/verification';
 import { isQuiet, sensitiveWarnings } from './domain';
 import { publicAccessEnabled, readablePublicRoom } from './public-access';
 import { getSession, parseCookies, sha256 } from './security';
-import { HttpError, type AgentAuth, type Bindings } from './types';
+import { HttpError, type Bindings } from './types';
 
 export const verificationFlags = `EXISTS (SELECT 1 FROM verification_notes n WHERE n.message_id=m.id) AS has_note,
     EXISTS (SELECT 1 FROM verification_notes n JOIN messages c ON c.id=n.correction_id AND c.deleted_at IS NULL
@@ -24,30 +26,6 @@ export const verificationChange = z.discriminatedUnion('kind', [
   z.strictObject({kind:z.literal('review'), status:z.enum(verdicts).nullable(), revision:z.string().regex(/^[a-f0-9]{32}$/)}),
 ]);
 
-type Actor = {user:string; auth?:AgentAuth; guestHash?:string};
-export const agentReviewer = (auth:AgentAuth):Actor => ({user:auth.agent.owner_id, auth, guestHash:auth.guestHash});
-
-const noBlock = (viewer:string, other:string) => `NOT EXISTS (SELECT 1 FROM blocks b
-  WHERE (b.user_id=${viewer} AND b.blocked_user_id=${other}) OR (b.user_id=${other} AND b.blocked_user_id=${viewer}))`;
-const admitted = `NOT EXISTS (SELECT 1 FROM room_expulsions x WHERE x.room_id=r.id AND x.user_id=v.uid)
-  AND ${noBlock('v.uid','r.host_user_id')} AND ${noBlock('v.uid','m.author_user_id')}`;
-
-const actorCte = `actor(uid,aid,conn,hash,policy,key_hash,expires_at) AS (VALUES(?,?,?,?,?,?,?))`;
-const membership = `EXISTS (SELECT 1 FROM room_members rm JOIN users u ON u.id=rm.user_id
-  WHERE rm.room_id=r.id AND rm.user_id=v.uid AND rm.agent_id IS v.aid
-    AND (v.aid IS NULL OR EXISTS (SELECT 1 FROM agents a JOIN agent_connections c ON c.agent_id=a.id
-      WHERE a.id=v.aid AND a.owner_id=v.uid AND a.deleted_at IS NULL AND a.policy_revision=v.policy
-        AND c.id=v.conn AND c.revoked_at IS NULL
-        AND (v.expires_at IS NULL OR v.expires_at>unixepoch('subsec'))
-        AND (v.key_hash IS NULL OR EXISTS (SELECT 1 FROM guest_agent_handles h WHERE h.agent_id=a.id AND h.key_hash=v.key_hash))))
-    AND (u.is_guest=0 OR (r.visibility='public' AND r.access_mode='anonymous' AND EXISTS
-      (SELECT 1 FROM guest_sessions gs WHERE gs.room_id=r.id AND gs.user_id=v.uid AND gs.token_hash=v.hash
-        AND gs.expires_at>unixepoch('subsec')*1000))))`;
-const actorValues = (a:Actor) => [a.user, a.auth?.agent.id ?? null, a.auth?.connectionId ?? null, a.guestHash ?? null, a.auth?.agent.policy_revision ?? null, a.auth?.guestKeyHash ?? null, a.auth?.expiresAt ?? null];
-const target = `WITH ${actorCte}, target AS (
-  SELECT m.id, m.seq, m.room_id, m.author_user_id=v.uid AND m.author_agent_id IS v.aid AS own
-  FROM messages m JOIN rooms r ON r.id=m.room_id CROSS JOIN actor v
-  WHERE r.id=? AND m.id=? AND m.deleted_at IS NULL AND ${admitted} AND ${membership})`;
 const actorKey = (a:Actor) => a.auth ? 'a:'+a.auth.agent.id : 'u:'+a.user;
 
 export async function updateVerification(env:Bindings, room:string, id:string, actor:Actor, input:unknown) {
@@ -141,11 +119,7 @@ export async function verificationArchive(env:Bindings, viewer:string, input:unk
   if (!parsed.success) throw new HttpError(400,'INVALID_QUERY','Check the query and cursor.');
   const {query,before_seq}=parsed.data;
   const pageSize = 20;
-  const rows = await env.DB.prepare(`WITH guest_viewers AS (
-    SELECT gs.room_id,gs.user_id FROM guest_sessions gs WHERE gs.token_hash IN (SELECT value FROM json_each(?))
-      AND gs.expires_at>unixepoch('subsec')*1000 GROUP BY gs.room_id),
-    viewers AS (SELECT r.id AS room_id,COALESCE(NULLIF(?,''),gv.user_id,'') AS uid FROM rooms r
-      LEFT JOIN guest_viewers gv ON gv.room_id=r.id WHERE r.directory_listed=1 AND ${readablePublicRoom})
+  const rows = await env.DB.prepare(`${listedViewers}
     SELECT ${fields} ${joins} JOIN viewers v ON v.room_id=r.id
     WHERE n.message_seq<? AND m.deleted_at IS NULL AND ${admitted}
       AND (?='' OR instr(lower(m.body),lower(?)) OR instr(lower(n.steps),lower(?)) OR instr(lower(n.source_url),lower(?))

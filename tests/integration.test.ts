@@ -122,7 +122,7 @@ test('personal beta enforces identity, room membership, limits, bearer and OAuth
   const japanese = await fetch(`${origin}/agent/guide`, {headers: {'Accept-Language': 'en;q=0.4,ja-JP'}});
   assert.equal(japanese.headers.get('Content-Language'), 'ja');
   const localizedPage = await japanese.text();
-  assert.match(localizedPage, /<pre lang="en" translate="no"># Read a public conversation/);
+  assert.match(localizedPage, /<pre lang="en" translate="no"># Find work before joining/);
   assert.match(localizedPage, /aria-label="スキルをダウンロード"[^>]*><svg/);
   const legacyGuide = await fetch(origin+'/agent-skill/guide.ja.md',{redirect:'manual'});
   assert.equal(legacyGuide.headers.get('Location'),origin+'/agent-skill/SKILL.md');
@@ -1173,7 +1173,17 @@ test('development public modes isolate anonymous visitors and preserve private r
       assert.equal(original.name,'Introductions'); assert.deepEqual(original.tags,['lobby']);
       assert.ok((await join(hidden)).isError);
       assert.ok((await call('create_room',{name:'Second room',display_name:'Visitor'})).isError);
-      assert.ok(!(await call('post_message',{body:'Hello from the lobby'})).isError);
+      const posted=await call('post_message',{body:'Hello from the lobby'});
+      assert.ok(!posted.isError);
+      const message_id=JSON.parse((posted.content as {text:string}[])[0].text).id;
+      const request=await call('set_room_request',{room_id:open,message_id,change:{action:'publish',title:'Check a client',expected_result:'Report its version'}});
+      assert.ok(!request.isError);
+      const visitor=new Client({name:'request-reader',version:'1'});
+      try {
+        await visitor.connect(new StreamableHTTPClientTransport(new URL('/api/public/mcp',origin)));
+        const list=await visitor.callTool({name:'list_open_requests',arguments:{query:'Check a client'}});
+        assert.equal(JSON.parse((list.content as {text:string}[])[0].text).requests[0].message_id,message_id);
+      } finally { await visitor.close(); }
       const messages = await call('read_messages');
       assert.equal(JSON.parse((messages.content as {text:string}[])[0].text).messages[0].body,'Hello from the lobby');
       assert.equal((await owner('/rooms/'+open)).data.members.filter((m:{kind:string}) => m.kind==='agent').length,1);
@@ -1190,7 +1200,7 @@ test('development public modes isolate anonymous visitors and preserve private r
     await ai.connect(transport);
     try {
       assert.ok(transport.sessionId);
-      assert.deepEqual((await ai.listTools()).tools.map(t=>t.name).sort(),['create_room_invite', 'delete_message', 'delete_room', 'edit_message', 'get_identity', 'get_member_profile', 'get_my_webhook', 'get_reply_status', 'get_room', 'get_room_members', 'get_verification_note', 'join_room', 'leave_room', 'post_media_message', 'post_message', 'read_attachment', 'read_messages', 'read_room_timeline', 'remove_my_webhook', 'remove_room_member', 'report_message', 'revoke_room_invites', 'search_messages', 'set_my_webhook', 'set_profile', 'set_reaction', 'set_reply_status', 'update_room', 'update_verification_note', 'upload_attachment_chunk']);
+      assert.deepEqual((await ai.listTools()).tools.map(t=>t.name).sort(),['create_room_invite', 'delete_message', 'delete_room', 'edit_message', 'get_identity', 'get_member_profile', 'get_my_webhook', 'get_reply_status', 'get_room', 'get_room_members', 'get_verification_note', 'join_room', 'leave_room', 'post_media_message', 'post_message', 'read_attachment', 'read_messages', 'read_room_timeline', 'remove_my_webhook', 'remove_room_member', 'report_message', 'revoke_room_invites', 'search_messages', 'set_my_webhook', 'set_profile', 'set_reaction', 'set_reply_status', 'set_room_request', 'update_room', 'update_verification_note', 'upload_attachment_chunk']);
       assert.equal((await ai.callTool({name:'read_messages',arguments:{}})).isError,true);
       const joined=await ai.callTool({name:'join_room',arguments:{name:'Visitor AI',image}});
       assert.ok(!joined.isError,JSON.stringify(joined.content));

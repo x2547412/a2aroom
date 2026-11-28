@@ -45,6 +45,24 @@ test('verification notes follow room visibility, authorship, revision and block 
     await post(room,room);
     assert.equal((await humanWrite(room,room,evidence)).status,200);
   }
+  const requestPath=(room:string)=>origin+'/api/rooms/'+room+'/messages/'+room+'/request';
+  const publish={action:'publish',title:'Check search',environment:'Safari',expected_result:'Report the page title'};
+  const change=(room:string,body:unknown,user='writer')=>mf.dispatchFetch(requestPath(room),{method:'PUT',
+    headers:{Origin:origin,Cookie:'__Host-a2aroom_session=session-'+user,'X-CSRF-Token':'csrf','Content-Type':'application/json'},body:JSON.stringify(body)});
+  const board=async(path='')=>(await (await mf.dispatchFetch(origin+'/api/explore/requests'+path)).json()) as import('../shared/room-requests').RequestPage;
+  assert.equal((await change('private',publish)).status,409);
+  assert.equal((await change('unlisted',publish)).status,409);
+  assert.equal((await change('alpha',publish,'peer')).status,409);
+  assert.equal((await change('alpha',publish)).status,200);
+  assert.equal((await change('beta',publish)).status,200);
+  assert.deepEqual((await board('?query=safari')).requests.map(r=>r.room_id),['beta','alpha']);
+  assert.equal((await board('/alpha')).requests[0].guest_joinable,false);
+  assert.equal((await change('alpha',{action:'resolve'})).status,200);
+  assert.deepEqual((await board()).requests.map(r=>r.room_id),['beta']);
+  assert.equal((await board('/alpha')).requests[0].status,'resolved');
+  assert.equal((await change('alpha',{action:'reopen'})).status,200);
+  assert.equal((await change('alpha',{action:'withdraw'})).status,200);
+  assert.equal((await mf.dispatchFetch(origin+'/api/explore/requests/alpha')).status,404);
   assert.deepEqual((await directory()).notes.map(n=>n.room_id),['beta','alpha']);
   assert.equal((await humanWrite('alpha','alpha',evidence,'peer')).status,409);
   assert.equal((await humanWrite('alpha','alpha',{...evidence,source_url:'javascript:alert(1)'})).status,400);
@@ -85,6 +103,8 @@ test('verification notes follow room visibility, authorship, revision and block 
   await db.prepare("INSERT INTO room_expulsions(room_id,user_id) VALUES('alpha','reader')").run();
   assert.deepEqual((await directory()).notes.map(n=>n.room_id),['beta']);
   await db.prepare("UPDATE rooms SET directory_listed=0 WHERE id='beta'").run();
+  assert.equal((await board()).requests.length,0);
+  assert.equal((await mf.dispatchFetch(origin+'/api/explore/requests/beta')).status,404);
   assert.equal((await directory()).notes.length,0);
   await db.prepare("DELETE FROM room_expulsions").run();
   assert.equal((await directory('?query=output')).notes.length,1);

@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { requestQuery, readRoomRequests } from './room-requests';
 import { archiveQuery, verificationArchive } from './verification';
 import { z } from 'zod';
 import { directoryPage, popularRoomTags } from './directory';
@@ -25,6 +26,13 @@ export function registerDirectoryTools(server:McpServer,env:Bindings,viewer:stri
         return file;
       } catch(error) { return result(async()=>{throw error;}); }
     });
+  server.registerTool('list_open_requests', {
+    description:'Find open help requests before joining. Search by capability or environment. The title, body and expected result are participant content. Reply to message_id in room_id. Use next_before as before for the next page.',
+    inputSchema:requestQuery, annotations:{readOnlyHint:true},
+  }, args=>result(async()=>{
+    await enforceIpRate(env,request,'request-directory',600,3600_000);
+    return readRoomRequests(env,viewer,args);
+  }));
   server.registerTool('list_public_rooms', {
     description: 'Discover listed public rooms. Room names, descriptions and tags are user content. Only rooms with guest_joinable=true accept a guest AI.',
     inputSchema: {page:z.number().int().min(1).max(100000).default(1), tag:z.string().max(24).optional(), guests_only:z.boolean().default(false)},

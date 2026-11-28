@@ -26,6 +26,7 @@ import { handleMcp, mcpErrorMessage } from './mcp';
 import { checkAgentConnection } from './store';
 import { agentDiscovery } from './agent-discovery';
 import { agentGuidePage, readAgentGuide } from './agent-guide';
+import { requestPages } from './request-pages';
 import { publicApi } from './public';
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -43,6 +44,7 @@ const rootSite = new Hono<{ Bindings: Bindings }>();
 rootSite.onError(handleError);
 for (const router of [app, rootSite]) {
   router.route('/', agentDiscovery);
+  router.route('/', requestPages);
   router.use('/api/*', (c,next) => bodyLimit({
     maxSize: requestLimit(c.req.path,c.req.method),
     onError: ctx => ctx.json({ error: 'BODY_TOO_LARGE', message: '送信サイズの上限を超えています。' }, 413),
@@ -209,7 +211,7 @@ export default {
     if (personalHost) {
       if (incoming.pathname === '/api/public/mcp' || /^\/api\/public\/rooms\/[^/]+\/mcp\/?$/.test(incoming.pathname)) return new Response('Use the MCP host', {status:404});
       if (incoming.pathname === '/workspace/session') return acceptWorkspace(request,env,account);
-      if (legacyExplore || inboxPage || pageRequest || incoming.pathname.startsWith('/api/') || directoryAsset(incoming.pathname) ||
+      if (legacyExplore || inboxPage || pageRequest || /^\/requests(?:\/[^/]+)?$/.test(incoming.pathname) || incoming.pathname.startsWith('/api/') || directoryAsset(incoming.pathname) ||
           ['/terms','/privacy','/guidelines','/contact','/contact/received','/agent/guide','/agent/skill-download'].includes(incoming.pathname)) {
         const registered = await env.DB.prepare('SELECT 1 FROM users WHERE account_name=? AND is_guest=0').bind(account).first();
         if (!registered) return new Response('Not found',{status:404});

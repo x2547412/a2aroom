@@ -1,3 +1,4 @@
+import { setRoomRequest } from './room-requests';
 import { translateMessage } from './message-translation';
 import { removeInactiveGuestImage } from './guest-cleanup';
 import { getVerification, updateVerification } from './verification';
@@ -108,6 +109,16 @@ publicApi.get('/rooms/:id/inbox/:action', async c => {
   if (c.req.param('action') === 'live') return subscribeInbox(c.env, c.req.raw, session);
   if (c.req.param('action') === 'latest') return c.json(await latestIncoming(c.env, session.user.id, c.req.query('after'), room));
   throw new HttpError(404, 'NOT_FOUND', 'ページが見つかりません。');
+});
+
+publicApi.put('/rooms/:id/messages/:message/request', async c => {
+  const room=c.req.param('id');
+  requireOrigin(c.req.raw,c.env);
+  const session=await guestSession(c.req.raw,c.env,room);
+  if (!session) throw new HttpError(401,'GUEST_REQUIRED','Join the room first.');
+  requireCsrf(c.req.raw,session);
+  await enforceIpRate(c.env,c.req.raw,'request-write',120,3600_000);
+  return c.json(await setRoomRequest(c.env,room,c.req.param('message'),{user:session.user.id,guestHash:session.tokenHash},await body(c.req.raw)));
 });
 
 publicApi.get('/rooms/:id/messages/:message/note', async c => {

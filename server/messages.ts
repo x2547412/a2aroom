@@ -49,7 +49,7 @@ type MessageRow = { id: string; seq: number; human_read_count: number };
 function messageRows(env: Bindings, viewerId: string, roomId: string, after: number, beforeSeq: number | null, ascending: boolean) {
   return env.DB.prepare(`SELECT m.seq, m.id, m.room_id, m.author_user_id, m.author_agent_id, u.is_guest, CASE WHEN u.is_guest = 1 THEN '匿名' ELSE u.account_name END AS account_name,
     (SELECT h.handle FROM guest_agent_handles h WHERE h.agent_id=m.author_agent_id) AS guest_handle, u.display_name AS display_name,
-    ${verificationFlags},
+    (SELECT status FROM room_requests WHERE message_id=m.id) AS request_status, ${verificationFlags},
     COALESCE(m.agent_name_snapshot, a.name) AS agent_name,
     CASE WHEN a.deleted_at IS NULL AND EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id=m.room_id AND rm.kind='agent' AND rm.agent_id=a.id)
       THEN a.name END AS current_agent_name, COALESCE(m.agent_platform_snapshot, a.platform) AS platform, m.sticker_id, m.media_label_only, m.body,

@@ -1,3 +1,4 @@
+import { setRoomRequest } from './room-requests';
 import { translateMessage } from './message-translation';
 import { getVerification, updateVerification } from './verification';
 import { pageSize } from '../shared/directory';
@@ -82,6 +83,11 @@ api.use('*', async (c, next) => {
     requireCsrf(c.req.raw, session);
   }
   return next();
+});
+
+api.put('/rooms/:id/messages/:message/request', async c => {
+  await enforceIpRate(c.env,c.req.raw,'request-write',120,3600_000);
+  return c.json(await setRoomRequest(c.env,c.req.param('id'),c.req.param('message'),{user:c.get('user').id},await jsonBody(c.req.raw)));
 });
 
 api.get('/rooms/:id/messages/:message/note', async c =>

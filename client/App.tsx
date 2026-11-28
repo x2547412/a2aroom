@@ -3,7 +3,7 @@ import { RoomListRefresh } from './RoomListRefresh';
 import { IntroAgentInvite, introRoomId } from './IntroAgentInvite';
 import { ScrollItems, ScrollMore } from './ScrollPages';
 import { LogoutDialog } from './LogoutDialog';
-import { navigateWithinApp } from './navigation';
+import { followAppLink, navigateWithinApp } from './navigation';
 import { SocialIcons } from './SocialLinks';
 import type { SocialLinks } from '../shared/social-links';
 import { PrimaryNavigation } from './PrimaryNavigation';
@@ -27,6 +27,8 @@ import { PrivacyPicker } from './PrivacyPicker';
 import { Modal } from './Modal';
 import { AccountPhoto, type ProfilePhoto } from './AccountPhoto';
 import { EditableAgentName, ParticipantProfile, profileFromLocation } from './ParticipantProfile';
+import { RequestEditor } from './RequestEditor';
+import { requestPath } from '../shared/room-requests';
 import { VerificationDialog, noteLabel } from './VerificationNotes';
 import { SwipeReply, useVisibleReads } from './ChatInteractions';
 import { AttachmentSheet, AttachmentView, DraftTray, ReactionCounts, ReactionPicker, Sticker, StickerPicker, attachmentUrl, chatPost, type MediaDraft } from './ChatMedia';
@@ -505,6 +507,11 @@ function MessageBubble({ children, onActions, stickerOnly = false }: { children:
   </button>;
 }
 
+function linkedMessage(): MessageFocus | null {
+  const room=location.pathname.match(/^\/rooms\/([\w-]+)$/)?.[1];
+  const query=new URLSearchParams(location.search), message=query.get('message'), seq=Number(query.get('seq'));
+  return room && message && /^[\w-]{1,128}$/.test(message) && Number.isSafeInteger(seq) && seq>0 ? {room,message,replySeq:seq} : null;
+}
 type MessageFocus = { room: string; message: string; replySeq?: number };
 
 function Chat({ refreshHistory, user, detail, items, focus, onFocus, hasOlder, loadingOlder, onOlder, onSend, onReact, onAgentChanged, onRepliesRead, guestCsrf, onEdit, onDelete, onReport, onBlock, canSend = true, onJoin, accountJoin, joining = false }: { refreshHistory: () => void; focus?: MessageFocus | null; onFocus: (focus: MessageFocus) => void; user: User; detail: RoomDetail; items: TimelineItem[]; hasOlder: boolean; loadingOlder: boolean; onOlder: () => void; onSend: (body: string, replyTo: string | null, media?: MediaDraft) => Promise<boolean>; onReact: (message: Message, emoji: string | null) => Promise<void>; onAgentChanged?: (id: string, name: string) => void; onRepliesRead?: () => void; guestCsrf?: string; onEdit?: (message: Message, body: string) => void; onDelete?: (message: Message) => void; onReport?: (message: Message) => void; onBlock?: (message: Message) => void; canSend?: boolean; onJoin?: () => void; accountJoin?: boolean; joining?: boolean }) {
@@ -518,6 +525,7 @@ function Chat({ refreshHistory, user, detail, items, focus, onFocus, hasOlder, l
   const [photo, setPhoto] = useState<Attachment | null>(null);
   const [fileError, setFileError] = useState('');
   const [reacting, setReacting] = useState(false);
+  const [requestMessage,setRequestMessage]=useState<Message|null>(null);
   const [noteMessage,setNoteMessage] = useState<Message|null>(null);
   const { publicRoomId } = useContext(ImageContext);
   const fileUrl = (file: Attachment) => attachmentUrl(detail.room.id, file.id, Boolean(publicRoomId));
@@ -762,6 +770,7 @@ function Chat({ refreshHistory, user, detail, items, focus, onFocus, hasOlder, l
                   {canSend && Boolean(message.attachments?.length) && <button type="button" className="attachment-actions" aria-label={ui("メッセージの操作", "Message actions")} aria-haspopup="dialog" onClick={() => openActions(message)}><MoreHorizontal size={18} /></button>}
                   {translationControl}
                   <time dateTime={new Date(message.created_at).toISOString()}>{time(message.created_at)}</time>{message.edited_at && <span>{ui("編集済み", "Edited")}</span>}
+                  {message.request_status && detail.room.directory_listed===1 && <a className="verification-marker" href={requestPath(message.id)} onClick={e=>followAppLink(e,requestPath(message.id))}>{message.request_status==='open'?ui('受付中の依頼','Open request'):ui('解決済みの依頼','Resolved request')}</a>}
                   {Boolean(message.has_note) && <button className="verification-marker" aria-haspopup="dialog" onClick={()=>setNoteMessage(message)}>{noteLabel}{Boolean(message.has_correction) && ui('・訂正あり',' · Corrected')}</button>}
                   {readCount > 0 && <span className="read-receipt">{group || readCount > 1 ? ui("既読", "Read") + readCount : ui("既読", "Read")}</span>}
 
@@ -794,6 +803,7 @@ function Chat({ refreshHistory, user, detail, items, focus, onFocus, hasOlder, l
     </div>
     {focus !== reachedFocus.current && focus?.replySeq !== undefined && !targetLoaded && <p className="receipt-error" role="status">{needsReplyPage && (loadingOlder || replyPage.current?.focus !== focus || replyPage.current.cursor !== first.id) ? ui("返信先を読み込み中…", "Loading original message…") : ui("返信先を表示できません。", "Original message unavailable.")}</p>}
     {readError && <p className="receipt-error" role="status">{readError}</p>}
+    {requestMessage && <RequestEditor message={requestMessage} guest={Boolean(publicRoomId)} csrf={guestCsrf} onSaved={refreshHistory} onClose={()=>setRequestMessage(null)}/>}
     {noteMessage && <VerificationDialog key={noteMessage.id} message={noteMessage} userId={user.id} canSend={canSend} listed={Boolean(detail.room.directory_listed)}
       publicView={Boolean(publicRoomId)} csrf={guestCsrf} onChange={refreshHistory} onClose={()=>setNoteMessage(null)}/>}
     {membershipEvent && <ParticipantProfile key={membershipEvent.id + ':' + (membershipEvent.member_agent_id ?? '')} room={detail.room.id} event={membershipEvent} publicView={Boolean(publicRoomId)} onClose={() => setMembershipEventId(null)} />}
@@ -818,6 +828,8 @@ function Chat({ refreshHistory, user, detail, items, focus, onFocus, hasOlder, l
       <p className="action-excerpt">{selected.body}</p><div className="action-list">
         <button className="menu-action" onClick={() => action(() => replyTo(selected))}><Reply size={18} />{ui("返信", "Reply")}</button>
         <button className="menu-action" onClick={() => void copyMessage(selected)}><Copy size={18} />{ui("コピー", "Copy")}</button>
+        {Boolean(detail.room.directory_listed) && detail.room.access_mode!=='invite' && selected.author_user_id===user.id && !selected.author_agent_id &&
+          <button className="menu-action" onClick={()=>action(()=>setRequestMessage(selected))}>{selected.request_status?ui('依頼を編集','Edit request'):ui('依頼として公開','Publish as a request')}</button>}
         {((selected.author_user_id===user.id && !selected.author_agent_id) || Boolean(selected.has_note)) &&
           <button className="menu-action" onClick={()=>action(()=>setNoteMessage(selected))}>{noteLabel}</button>}
         {selected.reply_to && selected.author_user_id===user.id && !selected.author_agent_id &&
@@ -851,7 +863,7 @@ export function PublicChat({ roomId, onBack, onLogin, onAccountJoin }: { roomId:
   const [room, setRoom] = useState<Room | null>(null); const [timeline, setTimeline] = useState(emptyTimeline); const [guest, setGuest] = useState<GuestSession>({ active: false });
   const [images, setImages] = useState<ImageVersions>({}); const [error, setError] = useState(''); const [unavailable, setUnavailable] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false); const [joining, setJoining] = useState(false);
-  const [focus, setFocus] = useState<MessageFocus | null>(null);
+  const [focus, setFocus] = useState<MessageFocus | null>(linkedMessage);
   const [showInfo, setShowInfo] = useState(false);
   const [guestDialog,setGuestDialog] = useState<'join' | 'leave' | 'profile' | null>(null);
   const [guestName,setGuestName] = useState(ui("匿名", "Anonymous")), [dialogError,setDialogError] = useState('');
@@ -1009,7 +1021,7 @@ export function App() {
   const [inviteCode, setInviteCode] = useState<string | null>(() => location.pathname.match(/^\/invite\/([^/]+)/)?.[1] ?? null);
   const [detail, setDetail] = useState<RoomDetail | null>(null); const [timeline, setTimeline] = useState(emptyTimeline); const [newRoom, setNewRoom] = useState(() => location.pathname === '/inbox' && new URLSearchParams(location.search).get('compose') === '1'); const [membersOpen, setMembersOpen] = useState<'メンバー' | 'トーク設定' | null>(null); const [error, setError] = useState('');
   const jumpGeneration = useRef(0);
-  const [focus, setFocus] = useState<MessageFocus | null>(null);
+  const [focus, setFocus] = useState<MessageFocus | null>(linkedMessage);
   function cancelJump() { jumpGeneration.current++; setFocus(null); }
   const [loadingOlder, setLoadingOlder] = useState(false);
   const activeRoomRef = useRef(activeId); const roomRequest = useRef(0); const appliedRoomRequest = useRef(0);

@@ -1,3 +1,5 @@
+import { agentReviewer } from './message-access';
+import { requestChange, setRoomRequest } from './room-requests';
 import { registerVerificationTools } from './verification-tools';
 import { guestRoomScope } from './public-access';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -20,6 +22,14 @@ export type ToolRunner = (operation:()=>Promise<unknown>)=>Promise<Reply>;
 export function registerChatTools(server:McpServer, env:Bindings, ctx:Pick<ExecutionContext,'waitUntil'>, request:Request,
   roomField:z.ZodString | z.ZodOptional<z.ZodString>,
   resolve:(room?:string)=>Promise<{auth:AgentAuth;room:string}>, run:ToolRunner) {
+  server.registerTool('set_room_request', {
+    description:'Publish your existing message as a public help request, edit its details, resolve, reopen or withdraw it. Requires authorship and membership in a listed public room. Publishing an existing request edits its fields and preserves its status.',
+    inputSchema:{room_id:roomField,message_id:z.string().min(1).max(128),change:requestChange},
+  }, ({room_id,message_id,change})=>run(async()=>{
+    const {room,auth}=await resolve(room_id);
+    await enforceIpRate(env,request,'request-write',120,3600_000);
+    return setRoomRequest(env,room,message_id,agentReviewer(auth),change);
+  }));
   registerVerificationTools(server,env,roomField,resolve,run);
   server.registerTool('read_room_timeline',{description:'Read the latest messages, receipts and membership events. Page backward with the oldest item’s seq.event_order (0 for a message).',
     inputSchema:{room_id:roomField,before:z.string().max(48).optional()},annotations:{readOnlyHint:true}},

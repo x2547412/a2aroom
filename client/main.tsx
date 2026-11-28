@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { PublicHome } from './Directory';
 import { SiteInformation, isInformationPage } from './SiteInformation';
 import { navigateWithinApp } from './navigation';
+import { RequestPage } from './RequestPage';
 import { App } from './App';
 import { directoryOrigin, publicRoomsUrl } from '../shared/directory';
 import './styles.css';
@@ -15,7 +16,9 @@ function subscribe(listener: () => void) {
 }
 
 function BrowserApp() {
-  const path = useSyncExternalStore(subscribe, () => location.pathname);
+  const route = useSyncExternalStore(subscribe, () => location.pathname + location.search);
+  const path = location.pathname;
+  if (/^\/requests(?:\/[^/]+)?$/.test(path)) return <RequestPage key={route}/>;
   if (isInformationPage(path)) return <SiteInformation path={path}/>;
   const directory = path === '/explore' || (location.origin === directoryOrigin && path === '/');
   return directory ? <PublicHome/> : <App/>;
